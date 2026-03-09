@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "homie-ai"
+version = "0.1.0"
+description = "Fully local, privacy-first personal AI assistant"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+]
+model = [
+    "llama-cpp-python>=0.2",
+    "transformers>=4.40",
+    "accelerate>=0.30",
+    "huggingface-hub>=0.23",
+]
+voice = [
+    "faster-whisper>=1.0",
+    "openwakeword>=0.6",
+    "piper-tts>=1.2",
+    "pyaudio>=0.2",
+    "sounddevice>=0.4",
+]
+context = [
+    "pywin32>=306; sys_platform == 'win32'",
+    "psutil>=5.9",
+    "watchdog>=4.0",
+]
+storage = [
+    "chromadb>=0.5",
+    "cryptography>=42.0",
+]
+app = [
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+    "pynput>=1.7",
+    "apscheduler>=3.10",
+]
+all = ["homie-ai[model,voice,context,storage,app]"]
+
+[project.scripts]
+homie = "homie_app.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/homie_core", "src/homie_app"]
