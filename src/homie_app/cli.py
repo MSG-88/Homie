@@ -29,7 +29,7 @@ def create_parser() -> argparse.ArgumentParser:
     add = model_sub.add_parser("add", help="Register a local model file")
     add.add_argument("path", type=str)
     add.add_argument("--name", type=str, required=True)
-    add.add_argument("--format", type=str, default="gguf", choices=["gguf", "safetensors"])
+    add.add_argument("--format", type=str, default="gguf", choices=["gguf", "safetensors", "cloud"])
     add.add_argument("--params", type=str, default="unknown")
     rm = model_sub.add_parser("remove", help="Remove a model")
     rm.add_argument("name", type=str)
@@ -58,18 +58,72 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_model_engine(cfg):
+    """Load the model engine from local file or cloud API."""
+    from homie_core.model.engine import ModelEngine
+    from homie_core.model.registry import ModelRegistry, ModelEntry
+
+    engine = ModelEngine()
+
+    # Check registry for an active model first
+    registry = ModelRegistry(Path(cfg.storage.path) / cfg.storage.models_dir)
+    registry.initialize()
+
+    entry = registry.get_active()
+
+    if not entry and cfg.llm.model_path:
+        entry = ModelEntry(
+            name=cfg.llm.model_path if cfg.llm.backend == "cloud" else "Qwen3.5-35B-A3B",
+            path=cfg.llm.model_path,
+            format=cfg.llm.backend,
+            params="cloud" if cfg.llm.backend == "cloud" else "35B-A3B",
+        )
+
+    if not entry:
+        return None, None
+
+    if entry.format == "cloud":
+        print(f"  Connecting to cloud API: {entry.path}")
+        print(f"  Endpoint: {cfg.llm.api_base_url or 'https://api.openai.com/v1'}")
+        engine.load(entry, api_key=cfg.llm.api_key, base_url=cfg.llm.api_base_url or "https://api.openai.com/v1")
+        print(f"  Connected!")
+    else:
+        print(f"  Loading model: {entry.name} ({entry.format})")
+        print(f"  Path: {entry.path}")
+        print(f"  Context: {cfg.llm.context_length:,} tokens")
+        engine.load(entry, n_ctx=cfg.llm.context_length, n_gpu_layers=cfg.llm.gpu_layers)
+
+    print(f"  Model loaded successfully!")
+    return engine, entry
+
+
 def cmd_chat(args, config=None):
     from homie_core.config import load_config
-    cfg = config or load_config(args.config if hasattr(args, 'config') else None)
-    print(f"Homie AI v0.1.0")
-    print(f"Type your message or 'quit' to exit.\n")
-
     from homie_core.memory.working import WorkingMemory
+    from homie_core.brain.orchestrator import BrainOrchestrator
+    from homie_app.prompts.system import SYSTEM_PROMPT
+
+    cfg = config or load_config(args.config if hasattr(args, 'config') else None)
+    print("=" * 50)
+    print("  Homie AI v0.1.0 — Interactive Chat")
+    print("=" * 50)
+
+    print("\n[Loading model...]")
+    engine, entry = _load_model_engine(cfg)
+    if not engine:
+        print("  No model found. Run 'homie init' first, or 'homie model add <path>'.")
+        return
+
     wm = WorkingMemory()
+    brain = BrainOrchestrator(model_engine=engine, working_memory=wm)
+    brain.set_system_prompt(SYSTEM_PROMPT)
+
+    user_name = cfg.user_name or "User"
+    print(f"\nHey{' ' + user_name if user_name != 'User' else ''}! Type your message or 'quit' to exit.\n")
 
     while True:
         try:
-            user_input = input("You> ").strip()
+            user_input = input(f"{user_name}> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!")
             break
@@ -78,8 +132,15 @@ def cmd_chat(args, config=None):
             break
         if not user_input:
             continue
-        wm.add_message("user", user_input)
-        print(f"Homie> [Model not loaded — run 'homie init' first]\n")
+
+        try:
+            response = brain.process(user_input)
+            print(f"Homie> {response}\n")
+        except Exception as e:
+            print(f"Homie> [Error: {e}]\n")
+
+    engine.unload()
+    print("Model unloaded.")
 
 
 def cmd_model(args, config=None):
@@ -96,7 +157,10 @@ def cmd_model(args, config=None):
         for m in models:
             active = " [ACTIVE]" if m.active else ""
             print(f"  {m.name} ({m.params}, {m.format}){active}")
-            print(f"    Path: {m.path}")
+            if m.format == "cloud":
+                print(f"    Endpoint: cloud API")
+            else:
+                print(f"    Path: {m.path}")
 
     elif args.model_command == "add":
         path = Path(args.path)
@@ -191,7 +255,6 @@ def main(argv: list[str] | None = None):
     if handler:
         handler(args)
     elif args.command == "start":
-        print("Starting Homie AI...")
         cmd_chat(args)
     elif args.command == "init":
         print("Initializing Homie AI...")
