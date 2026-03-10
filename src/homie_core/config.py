@@ -9,12 +9,15 @@ from pydantic import BaseModel, Field
 
 
 class LLMConfig(BaseModel):
-    model_path: str = ""
+    model_path: str = str(Path.home() / ".lmstudio" / "models" / "lmstudio-community" / "Qwen3.5-35B-A3B-GGUF" / "Qwen3.5-35B-A3B-Q4_K_M.gguf")
     backend: str = "gguf"
-    context_length: int = 4096
+    context_length: int = 65536
     temperature: float = 0.7
-    max_tokens: int = 1024
+    max_tokens: int = 2048
     gpu_layers: int = -1
+    repo_id: str = "lmstudio-community/Qwen3.5-35B-A3B-GGUF"
+    api_key: str = ""
+    api_base_url: str = ""
 
 
 class VoiceConfig(BaseModel):
@@ -66,8 +69,11 @@ def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
     env_map = {
         "HOMIE_LLM_BACKEND": ("llm", "backend"),
         "HOMIE_LLM_MODEL_PATH": ("llm", "model_path"),
+        "HOMIE_LLM_GPU_LAYERS": ("llm", "gpu_layers"),
         "HOMIE_VOICE_ENABLED": ("voice", "enabled"),
         "HOMIE_STORAGE_PATH": ("storage", "path"),
+        "HOMIE_API_KEY": ("llm", "api_key"),
+        "HOMIE_API_BASE_URL": ("llm", "api_base_url"),
         "HOMIE_USER_NAME": ("user_name",),
     }
     for env_var, path in env_map.items():
