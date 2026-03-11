@@ -15,8 +15,10 @@ from homie_core.intelligence.briefing import BriefingGenerator
 from homie_core.intelligence.observer_loop import ObserverLoop
 from homie_core.intelligence.audit_log import AuditLogger
 from homie_core.memory.working import WorkingMemory
+from homie_core.brain.orchestrator import BrainOrchestrator
 from homie_app.hotkey import HotkeyListener
 from homie_app.overlay import OverlayPopup
+from homie_app.prompts.system import SYSTEM_PROMPT
 
 
 class HomieDaemon:
@@ -78,53 +80,43 @@ class HomieDaemon:
         )
         self._hotkey = HotkeyListener(hotkey="alt+8", callback=self._on_hotkey)
 
-        # Model engine (lazy loaded)
+        # Model engine + brain (lazy loaded)
         self._engine = None
+        self._brain: Optional[BrainOrchestrator] = None
 
     def _on_hotkey(self) -> None:
         self._overlay.toggle()
 
-    def _build_daemon_prompt(self, text: str) -> str:
-        """Build a compact prompt with staged context within a tight budget."""
-        system = "You are Homie, a helpful AI assistant. Be concise."
-        budget = 3000 - len(system) - len(text) - 50
-        parts = [system]
-
-        # Active window context (cheap, high value)
-        active = self._working_memory.get("active_window", "")
-        if active and budget > 50:
-            ctx = f"\nContext: User is in {active}"
-            parts.append(ctx)
-            budget -= len(ctx)
-
-        # Staged retrieval context (facts + episodes, truncated)
+    def _inject_proactive_context(self) -> None:
+        """Feed proactive retrieval results into working memory for the cognitive arch."""
         staged = self._retrieval.consume_staged_context()
-        if staged.get("facts") and budget > 100:
-            facts = [f.get("fact", str(f))[:100] for f in staged["facts"][:3]]
-            block = "Facts:\n- " + "\n- ".join(facts)
-            if len(block) <= budget:
-                parts.append(block)
-                budget -= len(block)
+        if staged.get("facts"):
+            # Store as semantic signals so cognitive arch can TF-IDF score them
+            self._working_memory.update("staged_facts", staged["facts"][:5])
+        if staged.get("episodes"):
+            self._working_memory.update("staged_episodes", staged["episodes"][:3])
 
-        if staged.get("episodes") and budget > 100:
-            eps = [e.get("summary", str(e))[:150] for e in staged["episodes"][:1]]
-            block = "Related: " + eps[0]
-            if len(block) <= budget:
-                parts.append(block)
-                budget -= len(block)
-
-        parts.append(f"\nUser: {text}\nAssistant:")
-        return "\n".join(parts)
-
-    def _on_user_query(self, text: str) -> str:
+    def _ensure_brain(self) -> bool:
+        """Ensure model + brain are loaded. Returns True if ready."""
         if not self._engine:
             self._load_engine()
         if not self._engine:
+            return False
+        if not self._brain:
+            self._brain = BrainOrchestrator(
+                model_engine=self._engine,
+                working_memory=self._working_memory,
+            )
+            self._brain.set_system_prompt(SYSTEM_PROMPT)
+        return True
+
+    def _on_user_query(self, text: str) -> str:
+        if not self._ensure_brain():
             return "Model not available. Run 'homie init' to set up."
 
-        prompt = self._build_daemon_prompt(text)
+        self._inject_proactive_context()
         try:
-            response = self._engine.generate(prompt, max_tokens=512, timeout=120)
+            response = self._brain.process(text)
             self._audit.log_query(prompt=text, response=response,
                                   model=self._config.llm.model_path)
             return response
@@ -134,20 +126,17 @@ class HomieDaemon:
             return f"Error: {e}"
 
     def _on_user_query_stream(self, text: str):
-        """Yield tokens as they're generated for real-time overlay updates."""
-        if not self._engine:
-            self._load_engine()
-        if not self._engine:
+        """Yield tokens via the full cognitive pipeline — streaming."""
+        if not self._ensure_brain():
             yield "Model not available. Run 'homie init' to set up."
             return
 
-        prompt = self._build_daemon_prompt(text)
+        self._inject_proactive_context()
         chunks = []
         try:
-            for token in self._engine.stream(prompt, max_tokens=512, temperature=0.7):
+            for token in self._brain.process_stream(text):
                 chunks.append(token)
                 yield token
-            # Audit the full response
             full = "".join(chunks)
             self._audit.log_query(prompt=text, response=full,
                                   model=self._config.llm.model_path)

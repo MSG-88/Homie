@@ -1,3 +1,12 @@
+"""Brain orchestrator — delegates to the Cognitive Architecture for intelligent responses.
+
+The orchestrator is the public API used by cli.py, daemon.py, and overlay.py.
+It delegates all reasoning to CognitiveArchitecture, which runs the full
+6-stage pipeline: Perceive → Classify → Retrieve → Reason → Reflect → Adapt.
+
+For backward compatibility, _build_optimized_prompt() is retained as a fallback
+when cognitive architecture components are not fully wired.
+"""
 from __future__ import annotations
 
 from typing import Any, Iterator, Optional
@@ -5,12 +14,13 @@ from typing import Any, Iterator, Optional
 from homie_core.memory.working import WorkingMemory
 from homie_core.memory.episodic import EpisodicMemory
 from homie_core.memory.semantic import SemanticMemory
+from homie_core.brain.cognitive_arch import CognitiveArchitecture
 
 
 # Rough token estimate: ~4 chars per token
 _CHARS_PER_TOKEN = 4
 
-# Maximum prompt budget in characters (leaves room for response)
+# Maximum prompt budget in characters (fallback mode)
 _MAX_PROMPT_CHARS = 3000
 
 
@@ -28,27 +38,25 @@ class BrainOrchestrator:
         self._sm = semantic_memory
         self._system_prompt = "You are Homie, a helpful local AI assistant. Be concise and direct."
 
+        # Wire up the cognitive architecture
+        self._cognitive = CognitiveArchitecture(
+            model_engine=model_engine,
+            working_memory=working_memory,
+            episodic_memory=episodic_memory,
+            semantic_memory=semantic_memory,
+            system_prompt=self._system_prompt,
+        )
+
     def process(self, user_input: str) -> str:
-        """Blocking generate — use process_stream() for real-time output."""
-        self._wm.add_message("user", user_input)
-        prompt = self._build_optimized_prompt(user_input)
-        response = self._engine.generate(prompt, max_tokens=512, temperature=0.7)
-        self._wm.add_message("assistant", response)
-        return response
+        """Full cognitive pipeline — blocking generate."""
+        return self._cognitive.process(user_input)
 
     def process_stream(self, user_input: str) -> Iterator[str]:
-        """Stream tokens as they're generated — first token arrives fast."""
-        self._wm.add_message("user", user_input)
-        prompt = self._build_optimized_prompt(user_input)
-        chunks = []
-        for token in self._engine.stream(prompt, max_tokens=512, temperature=0.7):
-            chunks.append(token)
-            yield token
-        full_response = "".join(chunks)
-        self._wm.add_message("assistant", full_response)
+        """Full cognitive pipeline — streaming for instant first-token."""
+        return self._cognitive.process_stream(user_input)
 
     def _build_optimized_prompt(self, user_input: str) -> str:
-        """Build a compact prompt that fits within token budget.
+        """Fallback prompt builder — used when cognitive arch isn't available.
 
         Priority order (highest first):
         1. System prompt + user query (always included)
@@ -57,23 +65,20 @@ class BrainOrchestrator:
         4. Top 3 relevant facts
         5. Top 1 relevant episode
         """
-        # Start with mandatory parts
         parts = [self._system_prompt]
         budget = _MAX_PROMPT_CHARS - len(self._system_prompt) - len(user_input) - 50
 
-        # Priority 1: Current context (cheap, very useful)
         active = self._wm.get("active_window")
         if active and budget > 100:
             ctx_line = f"\nContext: User is in {active}"
             parts.append(ctx_line)
             budget -= len(ctx_line)
 
-        # Priority 2: Recent conversation (2 turns max, truncated)
         conversation = self._wm.get_conversation()
         if len(conversation) > 1 and budget > 200:
-            recent = conversation[-4:]  # last 2 exchanges
+            recent = conversation[-4:]
             conv_lines = []
-            for m in recent[:-1]:  # exclude current message
+            for m in recent[:-1]:
                 line = f"{m['role']}: {m['content'][:150]}"
                 conv_lines.append(line)
             conv_text = "\n".join(conv_lines)
@@ -81,7 +86,6 @@ class BrainOrchestrator:
                 parts.append(f"\nRecent:\n{conv_text}")
                 budget -= len(conv_text) + 10
 
-        # Priority 3: Relevant facts (top 3, short)
         if self._sm and budget > 100:
             try:
                 facts = self._sm.get_facts(min_confidence=0.6)
@@ -93,7 +97,6 @@ class BrainOrchestrator:
             except Exception:
                 pass
 
-        # Priority 4: Relevant episode (1 only, truncated)
         if self._em and budget > 100:
             try:
                 episodes = self._em.recall(user_input, n=1)
@@ -109,3 +112,4 @@ class BrainOrchestrator:
 
     def set_system_prompt(self, prompt: str) -> None:
         self._system_prompt = prompt
+        self._cognitive.set_system_prompt(prompt)
