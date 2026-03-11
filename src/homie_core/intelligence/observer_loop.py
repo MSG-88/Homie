@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 from homie_core.context.screen_monitor import ScreenMonitor, WindowInfo
 from homie_core.context.app_tracker import AppTracker
 from homie_core.intelligence.task_graph import TaskGraph
 from homie_core.memory.working import WorkingMemory
 from homie_core.utils import utc_now
+
+if TYPE_CHECKING:
+    from homie_core.neural.context_engine import SemanticContextEngine
+    from homie_core.neural.activity_classifier import ActivityClassifier
 
 
 class ObserverLoop:
@@ -23,6 +27,8 @@ class ObserverLoop:
         on_context_change: Optional[Callable[[str, str], None]] = None,
         poll_interval: float = 1.0,
         cpu_budget: float = 0.05,
+        context_engine: Optional[SemanticContextEngine] = None,
+        activity_classifier: Optional[ActivityClassifier] = None,
     ):
         self._wm = working_memory
         self._tg = task_graph
@@ -31,6 +37,8 @@ class ObserverLoop:
         self._on_context_change = on_context_change
         self._poll_interval = poll_interval
         self._cpu_budget = cpu_budget
+        self._context_engine = context_engine
+        self._activity_classifier = activity_classifier
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_window: Optional[WindowInfo] = None
@@ -55,6 +63,15 @@ class ObserverLoop:
 
         if self._on_context_change:
             self._on_context_change(window.process_name, window.title)
+
+        # Neural components (optional)
+        if self._context_engine:
+            self._context_engine.update(window.process_name, window.title)
+        if self._activity_classifier:
+            scores = self._activity_classifier.classify(window.process_name, window.title)
+            top = max(scores, key=scores.get)
+            self._wm.update("activity_type", top)
+            self._wm.update("activity_scores", scores)
 
     def _loop(self) -> None:
         while self._running:

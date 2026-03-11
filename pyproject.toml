@@ -71,7 +71,13 @@ app = [
     "pynput>=1.7",
     "apscheduler>=3.10",
 ]
-all = ["homie-ai[model,voice,context,storage,app]"]
+neural = [
+    "onnxruntime>=1.17",
+    "huggingface-hub>=0.23",
+    "tokenizers>=0.15",
+    "numpy>=1.24",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
