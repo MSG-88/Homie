@@ -28,23 +28,40 @@ def test_process_adds_to_conversation(brain):
     assert msgs[1]["role"] == "assistant"
 
 
-def test_context_includes_facts(brain):
+def test_prompt_includes_facts(brain):
     br, _, _ = brain
     sm = MagicMock()
     sm.get_facts.return_value = [{"fact": "user likes Python", "confidence": 0.9}]
-    sm.get_all_profiles.return_value = {}
     br._sm = sm
-    context = br._build_context("test")
-    assert "user likes Python" in context["known_facts"]
+    prompt = br._build_optimized_prompt("test")
+    assert "user likes Python" in prompt
 
 
-def test_context_includes_episodes(brain):
+def test_prompt_includes_episodes(brain):
     br, _, _ = brain
     em = MagicMock()
     em.recall.return_value = [{"summary": "Debugged auth module", "mood": "focused"}]
     br._em = em
-    context = br._build_context("debugging")
-    assert "Debugged auth module" in context["relevant_episodes"]
+    prompt = br._build_optimized_prompt("debugging")
+    assert "Debugged auth module" in prompt
+
+
+def test_process_stream_yields_tokens(brain):
+    br, engine, wm = brain
+    engine.stream.return_value = iter(["Hello", " world", "!"])
+    tokens = list(br.process_stream("Hi"))
+    assert tokens == ["Hello", " world", "!"]
+    msgs = wm.get_conversation()
+    assert msgs[-1]["content"] == "Hello world!"
+
+
+def test_optimized_prompt_respects_budget(brain):
+    br, _, _ = brain
+    br.set_system_prompt("A" * 2500)
+    prompt = br._build_optimized_prompt("test query")
+    # Should still include system prompt and user query even with tight budget
+    assert "A" * 2500 in prompt
+    assert "test query" in prompt
 
 
 def test_set_system_prompt(brain):

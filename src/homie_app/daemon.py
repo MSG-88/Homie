@@ -3,7 +3,7 @@ from __future__ import annotations
 import signal
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from homie_core.config import HomieConfig, load_config
 from homie_core.enterprise import load_enterprise_policy, apply_policy
@@ -72,7 +72,10 @@ class HomieDaemon:
         )
 
         # UI components (created but not started)
-        self._overlay = OverlayPopup(on_submit=self._on_user_query)
+        self._overlay = OverlayPopup(
+            on_submit=self._on_user_query,
+            on_submit_stream=self._on_user_query_stream,
+        )
         self._hotkey = HotkeyListener(hotkey="alt+8", callback=self._on_hotkey)
 
         # Model engine (lazy loaded)
@@ -81,38 +84,75 @@ class HomieDaemon:
     def _on_hotkey(self) -> None:
         self._overlay.toggle()
 
+    def _build_daemon_prompt(self, text: str) -> str:
+        """Build a compact prompt with staged context within a tight budget."""
+        system = "You are Homie, a helpful AI assistant. Be concise."
+        budget = 3000 - len(system) - len(text) - 50
+        parts = [system]
+
+        # Active window context (cheap, high value)
+        active = self._working_memory.get("active_window", "")
+        if active and budget > 50:
+            ctx = f"\nContext: User is in {active}"
+            parts.append(ctx)
+            budget -= len(ctx)
+
+        # Staged retrieval context (facts + episodes, truncated)
+        staged = self._retrieval.consume_staged_context()
+        if staged.get("facts") and budget > 100:
+            facts = [f.get("fact", str(f))[:100] for f in staged["facts"][:3]]
+            block = "Facts:\n- " + "\n- ".join(facts)
+            if len(block) <= budget:
+                parts.append(block)
+                budget -= len(block)
+
+        if staged.get("episodes") and budget > 100:
+            eps = [e.get("summary", str(e))[:150] for e in staged["episodes"][:1]]
+            block = "Related: " + eps[0]
+            if len(block) <= budget:
+                parts.append(block)
+                budget -= len(block)
+
+        parts.append(f"\nUser: {text}\nAssistant:")
+        return "\n".join(parts)
+
     def _on_user_query(self, text: str) -> str:
         if not self._engine:
             self._load_engine()
         if not self._engine:
             return "Model not available. Run 'homie init' to set up."
 
-        # Include staged context from proactive retrieval
-        staged = self._retrieval.consume_staged_context()
-        context_parts = []
-        if staged.get("facts"):
-            facts = [f.get("fact", str(f)) for f in staged["facts"][:5]]
-            context_parts.append("Relevant facts:\n- " + "\n- ".join(facts))
-        if staged.get("episodes"):
-            eps = [e.get("summary", str(e)) for e in staged["episodes"][:3]]
-            context_parts.append("Related past sessions:\n- " + "\n- ".join(eps))
-
-        active = self._working_memory.get("active_window", "")
-        if active:
-            context_parts.append(f"User is currently in: {active}")
-
-        context = "\n\n".join(context_parts)
-        prompt = f"You are Homie, a helpful AI assistant. Be concise.\n\n{context}\n\nUser: {text}\nAssistant:"
-
+        prompt = self._build_daemon_prompt(text)
         try:
-            response = self._engine.generate(prompt, max_tokens=2048, timeout=120)
+            response = self._engine.generate(prompt, max_tokens=512, timeout=120)
             self._audit.log_query(prompt=text, response=response,
                                   model=self._config.llm.model_path)
             return response
         except TimeoutError:
-            return "Timed out waiting for a response. The model may be overloaded — try a shorter question."
+            return "Timed out — the model may be overloaded."
         except Exception as e:
             return f"Error: {e}"
+
+    def _on_user_query_stream(self, text: str):
+        """Yield tokens as they're generated for real-time overlay updates."""
+        if not self._engine:
+            self._load_engine()
+        if not self._engine:
+            yield "Model not available. Run 'homie init' to set up."
+            return
+
+        prompt = self._build_daemon_prompt(text)
+        chunks = []
+        try:
+            for token in self._engine.stream(prompt, max_tokens=512, temperature=0.7):
+                chunks.append(token)
+                yield token
+            # Audit the full response
+            full = "".join(chunks)
+            self._audit.log_query(prompt=text, response=full,
+                                  model=self._config.llm.model_path)
+        except Exception as e:
+            yield f"\nError: {e}"
 
     def _load_engine(self) -> None:
         try:

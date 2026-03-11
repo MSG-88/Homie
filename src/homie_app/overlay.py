@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional, Union
 
 
 class OverlayPopup:
-    """Lightweight overlay popup for quick Homie interactions."""
+    """Lightweight overlay popup for quick Homie interactions.
 
-    def __init__(self, on_submit: Optional[Callable[[str], str]] = None):
+    Supports both blocking (on_submit returns str) and streaming
+    (on_submit_stream returns Iterator[str]) callbacks.
+    """
+
+    def __init__(
+        self,
+        on_submit: Optional[Callable[[str], str]] = None,
+        on_submit_stream: Optional[Callable[[str], Iterator[str]]] = None,
+    ):
         self._on_submit = on_submit
+        self._on_submit_stream = on_submit_stream
         self._visible = False
         self._root = None
         self._thread: Optional[threading.Thread] = None
@@ -93,16 +102,54 @@ class OverlayPopup:
             anim.start(root, response)
 
             def _process():
-                result = self._handle_submit(text)
-                def _update():
-                    anim.stop()
-                    response.config(text=result or "")
-                    entry.config(state=tk.NORMAL)
-                    entry.focus_set()
                 try:
-                    root.after(0, _update)
-                except Exception:
-                    pass
+                    if self._on_submit_stream:
+                        # Streaming: update label as tokens arrive
+                        chunks = []
+                        first = True
+                        for token in self._on_submit_stream(text.strip()):
+                            chunks.append(token)
+                            display = "".join(chunks)
+                            def _update_text(t=display, is_first=first):
+                                if is_first:
+                                    anim.stop()
+                                response.config(text=t)
+                            try:
+                                root.after(0, _update_text)
+                            except Exception:
+                                pass
+                            first = False
+                        # Final update
+                        def _done():
+                            anim.stop()
+                            entry.config(state=tk.NORMAL)
+                            entry.focus_set()
+                        try:
+                            root.after(0, _done)
+                        except Exception:
+                            pass
+                    else:
+                        # Blocking fallback
+                        result = self._handle_submit(text)
+                        def _update():
+                            anim.stop()
+                            response.config(text=result or "")
+                            entry.config(state=tk.NORMAL)
+                            entry.focus_set()
+                        try:
+                            root.after(0, _update)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    def _show_error(err=str(e)):
+                        anim.stop()
+                        response.config(text=f"Error: {err}")
+                        entry.config(state=tk.NORMAL)
+                        entry.focus_set()
+                    try:
+                        root.after(0, _show_error)
+                    except Exception:
+                        pass
 
             threading.Thread(target=_process, daemon=True).start()
 

@@ -205,21 +205,35 @@ def cmd_chat(args, config=None):
             continue
 
         try:
-            from homie_app.loading import CLILoadingSpinner
+            import sys
+            from homie_app.loading import CLILoadingSpinner, get_random_thinking_message
+
+            # Show spinner until first token arrives
             spinner = CLILoadingSpinner(style="random")
             spinner.start()
+            first_token = True
             try:
-                response = brain.process(user_input)
-            finally:
+                for token in brain.process_stream(user_input):
+                    if first_token:
+                        spinner.stop()
+                        sys.stdout.write("Homie> ")
+                        sys.stdout.flush()
+                        first_token = False
+                    sys.stdout.write(token)
+                    sys.stdout.flush()
+            except Exception:
+                if not first_token:
+                    raise
+                # Stream not supported — fall back to blocking generate
                 spinner.stop()
-            print(f"Homie> {response}\n")
-        except TimeoutError as e:
-            print(f"Homie> Timed out waiting for a response.")
-            print(f"       {e}")
-            print(f"       Try a shorter question, or check your model with 'homie model list'.\n")
+                sys.stdout.write(f"Homie> {brain.process(user_input)}")
+                sys.stdout.flush()
+            finally:
+                if first_token:
+                    spinner.stop()
+            print("\n")
         except ConnectionError as e:
-            print(f"Homie> Connection failed: {e}")
-            print(f"       Check your network or API configuration.\n")
+            print(f"Homie> Connection failed: {e}\n")
         except Exception as e:
             print(f"Homie> [Error: {e}]\n")
 
