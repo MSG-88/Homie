@@ -15,6 +15,7 @@ from homie_core.memory.working import WorkingMemory
 from homie_core.memory.episodic import EpisodicMemory
 from homie_core.memory.semantic import SemanticMemory
 from homie_core.brain.cognitive_arch import CognitiveArchitecture
+from homie_core.brain.tool_registry import ToolRegistry
 
 
 # Rough token estimate: ~4 chars per token
@@ -31,6 +32,7 @@ class BrainOrchestrator:
         working_memory: WorkingMemory,
         episodic_memory: Optional[EpisodicMemory] = None,
         semantic_memory: Optional[SemanticMemory] = None,
+        tool_registry: Optional[ToolRegistry] = None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -38,13 +40,14 @@ class BrainOrchestrator:
         self._sm = semantic_memory
         self._system_prompt = "You are Homie, a helpful local AI assistant. Be concise and direct."
 
-        # Wire up the cognitive architecture
+        # Wire up the cognitive architecture with tools + learning
         self._cognitive = CognitiveArchitecture(
             model_engine=model_engine,
             working_memory=working_memory,
             episodic_memory=episodic_memory,
             semantic_memory=semantic_memory,
             system_prompt=self._system_prompt,
+            tool_registry=tool_registry,
         )
 
     def process(self, user_input: str) -> str:
@@ -113,3 +116,7 @@ class BrainOrchestrator:
     def set_system_prompt(self, prompt: str) -> None:
         self._system_prompt = prompt
         self._cognitive.set_system_prompt(prompt)
+
+    def consolidate_session(self, mood: Optional[str] = None) -> Optional[str]:
+        """Consolidate session into episodic memory. Call at session end."""
+        return self._cognitive.consolidate_session(mood=mood)

@@ -29,6 +29,9 @@ from homie_core.memory.working import WorkingMemory
 from homie_core.memory.episodic import EpisodicMemory
 from homie_core.memory.semantic import SemanticMemory
 from homie_core.intelligence.self_reflection import SelfReflection
+from homie_core.brain.tool_registry import ToolRegistry, parse_tool_calls
+from homie_core.brain.agentic_loop import AgenticLoop, _strip_tool_markers
+from homie_core.memory.learning_pipeline import LearningPipeline
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +254,7 @@ class CognitiveArchitecture:
         semantic_memory: Optional[SemanticMemory] = None,
         self_reflection: Optional[SelfReflection] = None,
         system_prompt: str = "",
+        tool_registry: Optional[ToolRegistry] = None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -258,6 +262,12 @@ class CognitiveArchitecture:
         self._sm = semantic_memory
         self._reflection = self_reflection or SelfReflection()
         self._system_prompt = system_prompt
+        self._tools = tool_registry
+        self._agentic = AgenticLoop(model_engine, tool_registry) if tool_registry else None
+        self._learning = LearningPipeline(
+            semantic_memory=semantic_memory,
+            episodic_memory=episodic_memory,
+        )
 
     # ------------------------------------------------------------------
     # Stage 1: PERCEIVE — gather situational awareness
@@ -521,64 +531,79 @@ class CognitiveArchitecture:
     # Stage 6: ADAPT — full pipeline execution
     # ------------------------------------------------------------------
 
-    def process(self, user_input: str) -> str:
-        """Full cognitive pipeline — blocking."""
-        self._wm.add_message("user", user_input)
-
-        # Stage 1: Perceive
+    def _prepare_prompt(self, user_input: str):
+        """Run stages 1-5 and return (prompt, budget_cfg, adjustments)."""
         awareness = self._perceive()
-
-        # Stage 2: Classify
         complexity = self._classify(user_input, awareness)
 
-        # Stage 3: Retrieve (budget-aware)
         budget_cfg = _TOKEN_BUDGETS[complexity]
         facts = self._retrieve_relevant_facts(user_input, budget=budget_cfg["prompt_chars"] // 4)
         episodes = self._retrieve_relevant_episodes(user_input, budget=budget_cfg["prompt_chars"] // 6)
 
-        # Stage 4: Reason
         prompt = self._build_cognitive_prompt(user_input, complexity, awareness, facts, episodes)
 
-        # Stage 5: Reflect
+        # Inject tool descriptions if tools are available
+        if self._tools:
+            tool_prompt = self._tools.generate_tool_prompt()
+            if tool_prompt:
+                prompt = prompt.replace("\nUser:", f"\n{tool_prompt}\n\nUser:")
+
         adjustments = self._reflect_on_response(user_input, complexity, awareness)
         temperature = adjustments.get("temperature", budget_cfg["temperature"])
+
+        return prompt, budget_cfg, temperature
+
+    def process(self, user_input: str) -> str:
+        """Full cognitive pipeline — blocking, with agentic loop + learning."""
+        self._wm.add_message("user", user_input)
+
+        # Learn from user input (lightweight pattern extraction)
+        self._learning.process_user_message(user_input)
+
+        # Stages 1-5: Perceive, Classify, Retrieve, Reason, Reflect
+        prompt, budget_cfg, temperature = self._prepare_prompt(user_input)
         max_tokens = budget_cfg["max_tokens"]
 
-        # Stage 6: Generate
-        response = self._engine.generate(prompt, max_tokens=max_tokens, temperature=temperature)
-        self._wm.add_message("assistant", response)
+        # Stage 6: Generate (with agentic loop if tools available)
+        if self._agentic:
+            response = self._agentic.process(prompt, max_tokens=max_tokens, temperature=temperature)
+        else:
+            response = self._engine.generate(prompt, max_tokens=max_tokens, temperature=temperature)
 
-        # Update reflection with implicit feedback (response was generated)
+        self._wm.add_message("assistant", response)
         self._reflection.record_feedback(temperature, True)
 
         return response
 
     def process_stream(self, user_input: str) -> Iterator[str]:
-        """Full cognitive pipeline — streaming for instant first-token."""
+        """Full cognitive pipeline — streaming, with learning."""
         self._wm.add_message("user", user_input)
 
-        # Stage 1-5 are fast (no model calls)
-        awareness = self._perceive()
-        complexity = self._classify(user_input, awareness)
+        # Learn from user input
+        self._learning.process_user_message(user_input)
 
-        budget_cfg = _TOKEN_BUDGETS[complexity]
-        facts = self._retrieve_relevant_facts(user_input, budget=budget_cfg["prompt_chars"] // 4)
-        episodes = self._retrieve_relevant_episodes(user_input, budget=budget_cfg["prompt_chars"] // 6)
-
-        prompt = self._build_cognitive_prompt(user_input, complexity, awareness, facts, episodes)
-        adjustments = self._reflect_on_response(user_input, complexity, awareness)
-        temperature = adjustments.get("temperature", budget_cfg["temperature"])
+        # Stages 1-5
+        prompt, budget_cfg, temperature = self._prepare_prompt(user_input)
         max_tokens = budget_cfg["max_tokens"]
 
-        # Stage 6: Stream
+        # Stage 6: Stream (with agentic loop if tools available)
         chunks = []
-        for token in self._engine.stream(prompt, max_tokens=max_tokens, temperature=temperature):
-            chunks.append(token)
-            yield token
+        if self._agentic:
+            for token in self._agentic.process_stream(prompt, max_tokens=max_tokens, temperature=temperature):
+                chunks.append(token)
+                yield token
+        else:
+            for token in self._engine.stream(prompt, max_tokens=max_tokens, temperature=temperature):
+                chunks.append(token)
+                yield token
 
         full_response = "".join(chunks)
         self._wm.add_message("assistant", full_response)
         self._reflection.record_feedback(temperature, True)
+
+    def consolidate_session(self, mood: Optional[str] = None) -> Optional[str]:
+        """Consolidate current session into episodic memory. Call at session end."""
+        return self._learning.consolidate_session(self._wm, mood=mood)
 
     def set_system_prompt(self, prompt: str) -> None:
         self._system_prompt = prompt

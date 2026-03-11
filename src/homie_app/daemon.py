@@ -222,15 +222,26 @@ class HomieDaemon:
                 pass
 
     def _ensure_brain(self) -> bool:
-        """Ensure model + brain are loaded. Returns True if ready."""
+        """Ensure model + brain are loaded with tools. Returns True if ready."""
         if not self._engine:
             self._load_engine()
         if not self._engine:
             return False
         if not self._brain:
+            # Build tool registry with built-in tools
+            from homie_core.brain.tool_registry import ToolRegistry
+            from homie_core.brain.builtin_tools import register_builtin_tools
+
+            tool_registry = ToolRegistry()
+            register_builtin_tools(
+                registry=tool_registry,
+                working_memory=self._working_memory,
+            )
+
             self._brain = BrainOrchestrator(
                 model_engine=self._engine,
                 working_memory=self._working_memory,
+                tool_registry=tool_registry,
             )
             self._brain.set_system_prompt(SYSTEM_PROMPT)
         return True
@@ -348,6 +359,12 @@ class HomieDaemon:
             self._task_graph, apps_used=apps, switch_count=switch_count,
         )
         print(f"\n{digest}")
+
+        # Consolidate session into episodic memory
+        if self._brain:
+            summary = self._brain.consolidate_session()
+            if summary:
+                print(f"  Session saved: {summary}")
 
         self._observer.stop()
         self._hotkey.stop()
