@@ -83,10 +83,28 @@ class OverlayPopup:
 
         def on_enter(event=None):
             text = entry.get()
-            result = self._handle_submit(text)
-            if result:
-                response.config(text=result)
-                entry.delete(0, tk.END)
+            if not text or not text.strip():
+                return
+            entry.delete(0, tk.END)
+            entry.config(state=tk.DISABLED)
+
+            from homie_app.loading import OverlayLoadingAnimation
+            anim = OverlayLoadingAnimation()
+            anim.start(root, response)
+
+            def _process():
+                result = self._handle_submit(text)
+                def _update():
+                    anim.stop()
+                    response.config(text=result or "")
+                    entry.config(state=tk.NORMAL)
+                    entry.focus_set()
+                try:
+                    root.after(0, _update)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_process, daemon=True).start()
 
         def on_escape(event=None):
             self.hide()

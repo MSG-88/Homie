@@ -191,7 +191,13 @@ def cmd_chat(args, config=None):
             continue
 
         try:
-            response = brain.process(user_input)
+            from homie_app.loading import CLILoadingSpinner
+            spinner = CLILoadingSpinner(style="random")
+            spinner.start()
+            try:
+                response = brain.process(user_input)
+            finally:
+                spinner.stop()
             print(f"Homie> {response}\n")
         except Exception as e:
             print(f"Homie> [Error: {e}]\n")
