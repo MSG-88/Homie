@@ -80,42 +80,83 @@ class ObserverLoop:
             self._on_context_change(window.process_name, window.title)
 
         # Phase 1: Neural components (optional)
+        context_shifted = False
         if self._context_engine:
             self._context_engine.update(window.process_name, window.title)
+            context_shifted = self._context_engine.detect_context_shift()
+            self._wm.update("context_shift", context_shifted)
 
         top = None
+        top_confidence = 0.0
         if self._activity_classifier:
             scores = self._activity_classifier.classify(window.process_name, window.title)
             top = max(scores, key=scores.get)
+            top_confidence = scores.get(top, 0.0)
             self._wm.update("activity_type", top)
             self._wm.update("activity_scores", scores)
+            self._wm.update("activity_confidence", top_confidence)
 
         # Phase 2: Personal Neural Profile
         if self._rhythm:
             from datetime import datetime
             hour = datetime.now().hour
+            flow_score = self._wm.get("flow_score", 0.5)
             self._rhythm.record_activity(
                 hour=hour,
-                productivity_score=0.7,
+                productivity_score=flow_score,
                 activity_type=top,
             )
+            # Write rhythmic prediction for current hour
+            rhythmic_score = self._rhythm.predict_productivity(hour)
+            self._wm.update("rhythmic_score", rhythmic_score)
+
         if self._profile and self._context_engine:
             vec = self._context_engine.get_context_vector()
             if any(v != 0.0 for v in vec):
                 self._profile.observe(vec)
+
         if self._prefs and top:
             self._prefs.record("activity", top, scores.get(top, 0.5))
             self._prefs.record("tool", window.process_name, 1.0)
+            # Write dominant preferences to working memory
+            dominant = self._prefs.get_dominant("activity")
+            if dominant:
+                self._wm.update("preferred_activity", dominant)
+            shifts = self._prefs.get_detected_shifts()
+            if shifts:
+                self._wm.update("preference_shifts", shifts[-3:])
 
         # Phase 3: Predictive Intelligence
         if self._workflow:
             activity = self._wm.get("activity_type", "unknown")
             self._workflow.observe(activity)
+            predictions = self._workflow.predict_next(activity, top_n=1)
+            if predictions:
+                self._wm.update("predicted_next_activity", predictions[0][0])
+
         if self._flow:
             activity = self._wm.get("activity_type", "unknown")
             self._flow.record_activity(activity)
             self._wm.update("flow_score", self._flow.get_flow_score())
             self._wm.update("in_flow", self._flow.is_in_flow())
+
+        # Phase 4: Task duration tracking
+        self._update_task_duration()
+
+    def _update_task_duration(self) -> None:
+        """Track how long the user has been on the current task."""
+        active_tasks = [t for t in self._tg.get_tasks() if t.state == "active"]
+        if active_tasks:
+            current = active_tasks[-1]
+            self._wm.update("minutes_in_task", current.duration_minutes())
+            # Build description from project/apps
+            project = self._tg._extract_project_from_task(current)
+            apps = ", ".join(sorted(current.apps))
+            desc = f"{project} ({apps})" if project else apps
+            self._wm.update("task_description", desc)
+        else:
+            self._wm.update("minutes_in_task", 0.0)
+            self._wm.update("task_description", "")
 
     def _loop(self) -> None:
         while self._running:
@@ -127,6 +168,9 @@ class ObserverLoop:
 
                 self._wm.update("is_deep_work", self._apps.is_deep_work())
                 self._wm.update("switch_count_30m", self._apps.get_switch_count(30))
+
+                # Refresh task duration every poll cycle (not just on window change)
+                self._update_task_duration()
             except Exception:
                 pass
 
