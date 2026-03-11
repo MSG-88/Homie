@@ -13,6 +13,11 @@ from homie_core.utils import utc_now
 if TYPE_CHECKING:
     from homie_core.neural.context_engine import SemanticContextEngine
     from homie_core.neural.activity_classifier import ActivityClassifier
+    from homie_core.neural.rhythm_model import CircadianRhythmModel
+    from homie_core.neural.behavioral_profile import BehavioralProfile
+    from homie_core.neural.preference_engine import PreferenceEngine
+    from homie_core.intelligence.workflow_predictor import WorkflowPredictor
+    from homie_core.intelligence.flow_detector import FlowDetector
 
 
 class ObserverLoop:
@@ -29,6 +34,11 @@ class ObserverLoop:
         cpu_budget: float = 0.05,
         context_engine: Optional[SemanticContextEngine] = None,
         activity_classifier: Optional[ActivityClassifier] = None,
+        rhythm_model: Optional[CircadianRhythmModel] = None,
+        behavioral_profile: Optional[BehavioralProfile] = None,
+        preference_engine: Optional[PreferenceEngine] = None,
+        workflow_predictor: Optional[WorkflowPredictor] = None,
+        flow_detector: Optional[FlowDetector] = None,
     ):
         self._wm = working_memory
         self._tg = task_graph
@@ -39,6 +49,11 @@ class ObserverLoop:
         self._cpu_budget = cpu_budget
         self._context_engine = context_engine
         self._activity_classifier = activity_classifier
+        self._rhythm = rhythm_model
+        self._profile = behavioral_profile
+        self._prefs = preference_engine
+        self._workflow = workflow_predictor
+        self._flow = flow_detector
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_window: Optional[WindowInfo] = None
@@ -64,14 +79,43 @@ class ObserverLoop:
         if self._on_context_change:
             self._on_context_change(window.process_name, window.title)
 
-        # Neural components (optional)
+        # Phase 1: Neural components (optional)
         if self._context_engine:
             self._context_engine.update(window.process_name, window.title)
+
+        top = None
         if self._activity_classifier:
             scores = self._activity_classifier.classify(window.process_name, window.title)
             top = max(scores, key=scores.get)
             self._wm.update("activity_type", top)
             self._wm.update("activity_scores", scores)
+
+        # Phase 2: Personal Neural Profile
+        if self._rhythm:
+            from datetime import datetime
+            hour = datetime.now().hour
+            self._rhythm.record_activity(
+                hour=hour,
+                productivity_score=0.7,
+                activity_type=top,
+            )
+        if self._profile and self._context_engine:
+            vec = self._context_engine.get_context_vector()
+            if any(v != 0.0 for v in vec):
+                self._profile.observe(vec)
+        if self._prefs and top:
+            self._prefs.record("activity", top, scores.get(top, 0.5))
+            self._prefs.record("tool", window.process_name, 1.0)
+
+        # Phase 3: Predictive Intelligence
+        if self._workflow:
+            activity = self._wm.get("activity_type", "unknown")
+            self._workflow.observe(activity)
+        if self._flow:
+            activity = self._wm.get("activity_type", "unknown")
+            self._flow.record_activity(activity)
+            self._wm.update("flow_score", self._flow.get_flow_score())
+            self._wm.update("in_flow", self._flow.is_in_flow())
 
     def _loop(self) -> None:
         while self._running:
