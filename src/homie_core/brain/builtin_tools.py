@@ -2,13 +2,18 @@
 
 These give Homie real capabilities:
 - Memory: teach facts, recall knowledge, search episodes
-- System: time, date, system info, running processes
+- System: time, date, system info, running processes, terminal commands
 - Files: search files, read file contents
+- Git: status, log, diff, branches
+- Clipboard: read/write clipboard
+- Notes: save, list, read markdown notes
+- Web: search via DuckDuckGo
 - Plugins: query any enabled plugin
 """
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import platform
 import subprocess
@@ -388,6 +393,383 @@ def register_builtin_tools(
             execute=tool_index_stats,
             category="documents",
         ))
+
+    # ===================================================================
+    # GIT TOOLS
+    # ===================================================================
+
+    def tool_git_status() -> str:
+        """Run git status and return parsed output."""
+        try:
+            result = subprocess.run(
+                ["git", "status", "--short", "--branch"],
+                capture_output=True, text=True, timeout=10,
+            )
+            output = result.stdout.strip()
+            if result.returncode != 0:
+                return f"Git error: {result.stderr.strip()}"
+            return output if output else "Working tree clean, nothing to commit."
+        except FileNotFoundError:
+            return "Git is not installed or not in PATH."
+        except subprocess.TimeoutExpired:
+            return "Git status timed out."
+        except Exception as e:
+            return f"Git error: {e}"
+
+    registry.register(Tool(
+        name="git_status",
+        description="Run git status to see current changes, staged files, and branch info.",
+        params=[],
+        execute=tool_git_status,
+        category="git",
+    ))
+
+    def tool_git_log(count: int = 5) -> str:
+        """Show recent git commits."""
+        try:
+            result = subprocess.run(
+                ["git", "log", f"--oneline", f"-{int(count)}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return f"Git error: {result.stderr.strip()}"
+            output = result.stdout.strip()
+            return output if output else "No commits found."
+        except FileNotFoundError:
+            return "Git is not installed or not in PATH."
+        except subprocess.TimeoutExpired:
+            return "Git log timed out."
+        except Exception as e:
+            return f"Git error: {e}"
+
+    registry.register(Tool(
+        name="git_log",
+        description="Show recent git commits (one line each).",
+        params=[
+            ToolParam(name="count", description="Number of commits to show", type="int", required=False, default=5),
+        ],
+        execute=tool_git_log,
+        category="git",
+    ))
+
+    def tool_git_diff(staged: bool = False) -> str:
+        """Show current git diff."""
+        try:
+            cmd = ["git", "diff"]
+            if staged:
+                cmd.append("--cached")
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return f"Git error: {result.stderr.strip()}"
+            output = result.stdout.strip()
+            if len(output) > 5000:
+                output = output[:5000] + "\n... truncated"
+            return output if output else "No changes."
+        except FileNotFoundError:
+            return "Git is not installed or not in PATH."
+        except subprocess.TimeoutExpired:
+            return "Git diff timed out."
+        except Exception as e:
+            return f"Git error: {e}"
+
+    registry.register(Tool(
+        name="git_diff",
+        description="Show the current git diff (unstaged changes by default, or staged with staged=true).",
+        params=[
+            ToolParam(name="staged", description="Show staged changes instead", type="bool", required=False, default=False),
+        ],
+        execute=tool_git_diff,
+        category="git",
+    ))
+
+    def tool_git_branch() -> str:
+        """List git branches and show current branch."""
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--list"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return f"Git error: {result.stderr.strip()}"
+            output = result.stdout.strip()
+            return output if output else "No branches found."
+        except FileNotFoundError:
+            return "Git is not installed or not in PATH."
+        except subprocess.TimeoutExpired:
+            return "Git branch timed out."
+        except Exception as e:
+            return f"Git error: {e}"
+
+    registry.register(Tool(
+        name="git_branch",
+        description="List all git branches and highlight the current one.",
+        params=[],
+        execute=tool_git_branch,
+        category="git",
+    ))
+
+    # ===================================================================
+    # TERMINAL TOOL
+    # ===================================================================
+
+    BLOCKED_COMMANDS = {
+        "rm -rf /", "rm -rf ~", "format", "del /f /s /q", "mkfs",
+        "dd if=", ":()", "chmod -r 777 /", "shutdown", "reboot",
+    }
+
+    def tool_run_command(command: str) -> str:
+        """Execute a shell command with safety checks."""
+        cmd_lower = command.lower().strip()
+        for blocked in BLOCKED_COMMANDS:
+            if blocked in cmd_lower:
+                return f"Blocked: command contains dangerous pattern '{blocked}'."
+
+        try:
+            result = subprocess.run(
+                command, shell=True,
+                capture_output=True, text=True, timeout=10,
+            )
+            output = result.stdout
+            if result.stderr:
+                output += ("\n" if output else "") + result.stderr
+            output = output.strip()
+            if len(output) > 5000:
+                output = output[:5000] + "\n... truncated"
+            if not output:
+                return f"Command completed with exit code {result.returncode}."
+            return output
+        except subprocess.TimeoutExpired:
+            return "Command timed out (10s limit)."
+        except Exception as e:
+            return f"Command error: {e}"
+
+    registry.register(Tool(
+        name="run_command",
+        description="Execute a shell command and return its output. Dangerous commands are blocked for safety.",
+        params=[
+            ToolParam(name="command", description="Shell command to execute", type="string"),
+        ],
+        execute=tool_run_command,
+        category="system",
+    ))
+
+    # ===================================================================
+    # CLIPBOARD TOOLS
+    # ===================================================================
+
+    def tool_clipboard_read() -> str:
+        """Read current clipboard content."""
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["powershell", "-command", "Get-Clipboard"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return result.stdout.strip() if result.stdout.strip() else "Clipboard is empty."
+            elif platform.system() == "Darwin":
+                result = subprocess.run(
+                    ["pbpaste"], capture_output=True, text=True, timeout=5,
+                )
+                return result.stdout.strip() if result.stdout.strip() else "Clipboard is empty."
+            else:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-o"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return result.stdout.strip() if result.stdout.strip() else "Clipboard is empty."
+        except FileNotFoundError:
+            return "Clipboard tool not available on this system."
+        except subprocess.TimeoutExpired:
+            return "Clipboard read timed out."
+        except Exception as e:
+            return f"Clipboard error: {e}"
+
+    registry.register(Tool(
+        name="clipboard_read",
+        description="Read the current clipboard content.",
+        params=[],
+        execute=tool_clipboard_read,
+        category="clipboard",
+    ))
+
+    def tool_clipboard_write(text: str) -> str:
+        """Write text to clipboard."""
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["powershell", "-command", f"Set-Clipboard -Value '{text}'"],
+                    capture_output=True, text=True, timeout=5,
+                )
+            elif platform.system() == "Darwin":
+                result = subprocess.run(
+                    ["pbcopy"], input=text, capture_output=True, text=True, timeout=5,
+                )
+            else:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text, capture_output=True, text=True, timeout=5,
+                )
+            if result.returncode != 0:
+                return f"Clipboard error: {result.stderr.strip()}"
+            return f"Copied to clipboard ({len(text)} chars)."
+        except FileNotFoundError:
+            return "Clipboard tool not available on this system."
+        except subprocess.TimeoutExpired:
+            return "Clipboard write timed out."
+        except Exception as e:
+            return f"Clipboard error: {e}"
+
+    registry.register(Tool(
+        name="clipboard_write",
+        description="Write text to the system clipboard.",
+        params=[
+            ToolParam(name="text", description="Text to copy to clipboard", type="string"),
+        ],
+        execute=tool_clipboard_write,
+        category="clipboard",
+    ))
+
+    # ===================================================================
+    # NOTES TOOLS
+    # ===================================================================
+
+    notes_dir = Path(storage_path or "~/.homie").expanduser() / "notes"
+
+    def tool_save_note(title: str, content: str) -> str:
+        """Save a note as a markdown file."""
+        try:
+            notes_dir.mkdir(parents=True, exist_ok=True)
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+            safe_title = safe_title.strip().replace(" ", "_")
+            if not safe_title:
+                return "Invalid note title."
+            filepath = notes_dir / f"{safe_title}.md"
+            filepath.write_text(f"# {title}\n\n{content}", encoding="utf-8")
+            return f"Note saved: {filepath.name}"
+        except Exception as e:
+            return f"Error saving note: {e}"
+
+    registry.register(Tool(
+        name="save_note",
+        description="Save a note with a title. Notes are stored as markdown files.",
+        params=[
+            ToolParam(name="title", description="Title of the note", type="string"),
+            ToolParam(name="content", description="Note content (supports markdown)", type="string"),
+        ],
+        execute=tool_save_note,
+        category="notes",
+    ))
+
+    def tool_list_notes() -> str:
+        """List all saved notes."""
+        try:
+            if not notes_dir.exists():
+                return "No notes saved yet."
+            notes = sorted(notes_dir.glob("*.md"))
+            if not notes:
+                return "No notes saved yet."
+            lines = [f"Found {len(notes)} notes:"]
+            for note in notes:
+                size = note.stat().st_size
+                lines.append(f"  - {note.stem} ({size}B)")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error listing notes: {e}"
+
+    registry.register(Tool(
+        name="list_notes",
+        description="List all saved notes.",
+        params=[],
+        execute=tool_list_notes,
+        category="notes",
+    ))
+
+    def tool_read_note(title: str) -> str:
+        """Read a specific note by title."""
+        try:
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+            safe_title = safe_title.strip().replace(" ", "_")
+            filepath = notes_dir / f"{safe_title}.md"
+            if not filepath.exists():
+                # Try case-insensitive search
+                for note in notes_dir.glob("*.md"):
+                    if note.stem.lower() == safe_title.lower():
+                        filepath = note
+                        break
+                else:
+                    return f"Note '{title}' not found."
+            return filepath.read_text(encoding="utf-8")
+        except Exception as e:
+            return f"Error reading note: {e}"
+
+    registry.register(Tool(
+        name="read_note",
+        description="Read a specific note by its title.",
+        params=[
+            ToolParam(name="title", description="Title of the note to read", type="string"),
+        ],
+        execute=tool_read_note,
+        category="notes",
+    ))
+
+    # ===================================================================
+    # WEB SEARCH TOOL
+    # ===================================================================
+
+    def tool_web_search(query: str) -> str:
+        """Search the web using DuckDuckGo instant answers API."""
+        try:
+            import requests
+        except ImportError:
+            return "Web search unavailable: requests library not installed."
+
+        try:
+            resp = requests.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json", "no_html": "1"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            parts = []
+            # Abstract (main answer)
+            if data.get("Abstract"):
+                parts.append(f"**{data.get('Heading', 'Answer')}**: {data['Abstract']}")
+                if data.get("AbstractURL"):
+                    parts.append(f"Source: {data['AbstractURL']}")
+
+            # Answer box
+            if data.get("Answer"):
+                parts.append(f"Answer: {data['Answer']}")
+
+            # Related topics
+            related = data.get("RelatedTopics", [])
+            if related:
+                parts.append("\nRelated:")
+                for topic in related[:5]:
+                    if isinstance(topic, dict) and topic.get("Text"):
+                        text = topic["Text"][:200]
+                        parts.append(f"  - {text}")
+
+            if not parts:
+                return f"No instant results for '{query}'. Try a more specific query."
+
+            return "\n".join(parts)
+        except Exception as e:
+            return f"Web search error: {e}"
+
+    registry.register(Tool(
+        name="web_search",
+        description="Search the web using DuckDuckGo. Returns instant answers and related topics.",
+        params=[
+            ToolParam(name="query", description="Search query", type="string"),
+        ],
+        execute=tool_web_search,
+        category="web",
+    ))
 
     # ===================================================================
     # PLUGIN BRIDGE
