@@ -8,8 +8,10 @@ from homie_core.vault.exceptions import (
     CredentialNotFoundError,
     RateLimitError,
 )
+from homie_core.vault.secure_vault import SecureVault
 
 __all__ = [
+    "SecureVault",
     "VaultError",
     "VaultLockedError",
     "VaultAuthError",
