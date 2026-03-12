@@ -79,7 +79,12 @@ neural = [
     "tokenizers>=0.15",
     "numpy>=1.24",
 ]
-all = ["homie-ai[model,voice,context,storage,app,neural]"]
+email = [
+    "google-api-python-client>=2.130",
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural,email]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
