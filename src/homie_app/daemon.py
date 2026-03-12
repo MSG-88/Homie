@@ -118,6 +118,27 @@ class HomieDaemon:
         # Vault sync manager (callbacks registered by sub-projects)
         self._vault_sync = VaultSyncManager(vault=self._vault)
 
+        # Initialize email service if Gmail is connected
+        self._email_service = None
+        try:
+            gmail_creds = self._vault.list_credentials("gmail")
+            active_gmail = [c for c in gmail_creds if c.active]
+            if active_gmail:
+                from homie_core.email import EmailService
+                from homie_core.vault.schema import create_cache_db
+                cache_path = storage / "cache.db"
+                cache_conn = create_cache_db(cache_path)
+                self._email_service = EmailService(
+                    vault=self._vault, cache_conn=cache_conn,
+                    working_memory=self._working_memory,
+                )
+                accounts = self._email_service.initialize()
+                if accounts:
+                    self._vault_sync.register_callback("gmail", self._email_service.sync_tick)
+                    print(f"  Email: {len(accounts)} Gmail account(s) connected")
+        except Exception as e:
+            print(f"  Email: not available ({e})")
+
         # Try to initialize neural components with HF embeddings
         self._init_neural_components()
 
@@ -287,6 +308,11 @@ class HomieDaemon:
                 rag_pipeline=self._rag,
             )
 
+            # Register email tools if service is available
+            if self._email_service:
+                from homie_core.email.tools import register_email_tools
+                register_email_tools(tool_registry, self._email_service)
+
             self._brain = BrainOrchestrator(
                 model_engine=self._engine,
                 working_memory=self._working_memory,
@@ -446,6 +472,10 @@ class HomieDaemon:
             summary = self._brain.consolidate_session()
             if summary:
                 print(f"  Session saved: {summary}")
+
+        # Close email service
+        if self._email_service:
+            self._email_service = None
 
         # Lock vault and stop sync
         self._vault_sync = None
