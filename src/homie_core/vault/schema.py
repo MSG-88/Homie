@@ -92,6 +92,61 @@ CREATE TABLE IF NOT EXISTS connection_status (
     last_sync REAL,
     last_sync_error TEXT
 );
+
+CREATE TABLE IF NOT EXISTS emails (
+    id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    subject TEXT,
+    sender TEXT,
+    recipients TEXT,
+    snippet TEXT,
+    body TEXT,
+    labels TEXT,
+    date REAL,
+    is_read INTEGER DEFAULT 1,
+    is_starred INTEGER DEFAULT 0,
+    has_attachments INTEGER DEFAULT 0,
+    attachment_names TEXT,
+    priority TEXT DEFAULT 'medium',
+    spam_score REAL DEFAULT 0.0,
+    categories TEXT,
+    fetched_at REAL,
+    PRIMARY KEY (id, account_id)
+);
+
+CREATE TABLE IF NOT EXISTS email_sync_state (
+    account_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    history_id TEXT,
+    last_full_sync REAL,
+    last_incremental_sync REAL,
+    total_synced INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS spam_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    original_score REAL,
+    corrected_action TEXT,
+    sender TEXT,
+    created_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS email_config (
+    account_id TEXT PRIMARY KEY,
+    check_interval INTEGER DEFAULT 300,
+    notify_priority TEXT DEFAULT 'high',
+    quiet_hours_start INTEGER,
+    quiet_hours_end INTEGER,
+    auto_trash_spam INTEGER DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_emails_account_date ON emails(account_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
+CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority, date DESC);
 """
 
 _MIGRATIONS: dict[int, callable] = {}
