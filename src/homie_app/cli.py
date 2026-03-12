@@ -1044,15 +1044,16 @@ def cmd_connect(args, config=None):
     code = oauth.wait_for_redirect(timeout=120)
 
     if not code:
-        print("\nLocal redirect failed. Manual authorization:")
-        manual_url = oauth.get_auth_url(use_local_server=False)
-        print(f"\nVisit this URL:\n{manual_url}\n")
-        code = input("Paste the authorization code: ").strip()
+        # Fallback: try alternate port
+        print("\nPrimary port unavailable. Trying alternate port...")
+        alt_url = oauth.get_auth_url(alt_port=True)
+        webbrowser.open(alt_url)
+        code = oauth.wait_for_redirect_alt(timeout=120)
         if not code:
-            print("Cancelled.")
+            print("\nAuthorization failed. Please check your firewall settings and try again.")
             vault.lock()
             return
-        tokens = oauth.exchange(code, use_local_server=False)
+        tokens = oauth.exchange(code, alt_port=True)
     else:
         tokens = oauth.exchange(code, use_local_server=True)
 

@@ -96,7 +96,7 @@ class SyncEngine:
             for change in changes:
                 if change.change_type == "added":
                     try:
-                        msg = self._provider._fetch_and_parse(change.message_id)
+                        msg = self._provider.fetch_message(change.message_id)
                         if msg:
                             self._classify_and_organize(msg, result, config)
                     except Exception:

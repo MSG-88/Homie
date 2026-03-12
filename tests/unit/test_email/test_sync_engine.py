@@ -72,12 +72,12 @@ class TestIncrementalSync:
         new_msg = _make_msg("m3", subject="New email")
         provider.search.return_value = []
 
-        # Mock the single message fetch
-        def mock_fetch_and_parse(msg_id):
+        # Mock the single message fetch (public interface)
+        def mock_fetch_message(msg_id):
             if msg_id == "m3":
                 return new_msg
             return None
-        provider._fetch_and_parse = mock_fetch_and_parse
+        provider.fetch_message = mock_fetch_message
 
         classifier = MagicMock()
         classifier.spam_score.return_value = 0.0

@@ -33,7 +33,8 @@ _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _REDIRECT_PORT = 8547
 _REDIRECT_URI = f"http://localhost:{_REDIRECT_PORT}/callback"
-_MANUAL_REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
+_ALT_REDIRECT_PORT = 8548
+_ALT_REDIRECT_URI = f"http://localhost:{_ALT_REDIRECT_PORT}/callback"
 
 
 def build_auth_url(
@@ -116,9 +117,12 @@ class GmailOAuth:
         self._client_id = client_id
         self._client_secret = client_secret
 
-    def get_auth_url(self, use_local_server: bool = True) -> str:
+    def get_auth_url(self, use_local_server: bool = True, alt_port: bool = False) -> str:
         """Get the authorization URL."""
-        redirect = _REDIRECT_URI if use_local_server else _MANUAL_REDIRECT_URI
+        if alt_port:
+            redirect = _ALT_REDIRECT_URI
+        else:
+            redirect = _REDIRECT_URI
         return build_auth_url(self._client_id, redirect)
 
     def wait_for_redirect(self, timeout: int = 120) -> str | None:
@@ -145,9 +149,35 @@ class GmailOAuth:
         except queue.Empty:
             return None
 
-    def exchange(self, code: str, use_local_server: bool = True) -> dict[str, Any]:
+    def wait_for_redirect_alt(self, timeout: int = 120) -> str | None:
+        """Try alternate port for OAuth redirect. Returns auth code or None."""
+        result_queue: queue.Queue[str] = queue.Queue()
+        handler_cls = _make_callback_handler(result_queue)
+        try:
+            server = http.server.HTTPServer(("localhost", _ALT_REDIRECT_PORT), handler_cls)
+        except OSError:
+            return None
+        server.timeout = timeout
+
+        def _serve():
+            while result_queue.empty():
+                server.handle_request()
+
+        thread = threading.Thread(target=_serve, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout + 5)
+        server.server_close()
+        try:
+            return result_queue.get_nowait()
+        except queue.Empty:
+            return None
+
+    def exchange(self, code: str, use_local_server: bool = True, alt_port: bool = False) -> dict[str, Any]:
         """Exchange auth code for tokens."""
-        redirect = _REDIRECT_URI if use_local_server else _MANUAL_REDIRECT_URI
+        if alt_port:
+            redirect = _ALT_REDIRECT_URI
+        else:
+            redirect = _REDIRECT_URI
         return exchange_code(code, self._client_id, self._client_secret, redirect)
 
     def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:

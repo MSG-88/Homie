@@ -76,6 +76,9 @@ class GmailProvider(EmailProvider):
                 client_id=client_id,
                 client_secret=client_secret,
             )
+            if hasattr(credential, 'expires_at') and credential.expires_at:
+                from datetime import datetime, timezone
+                creds.expiry = datetime.fromtimestamp(credential.expires_at, tz=timezone.utc)
             self._creds = creds
             self._service = build("gmail", "v1", credentials=creds)
         except ImportError:
@@ -131,38 +134,49 @@ class GmailProvider(EmailProvider):
         """Get changes since history_id."""
         self._check_token_freshness()
         changes = []
-        response = (
-            self._service.users()
-            .history()
-            .list(userId="me", startHistoryId=start_history_id)
-            .execute()
-        )
-        new_history_id = response.get("historyId", start_history_id)
+        new_history_id = start_history_id
+        page_token = None
 
-        for record in response.get("history", []):
-            for added in record.get("messagesAdded", []):
-                changes.append(HistoryChange(
-                    message_id=added["message"]["id"],
-                    change_type="added",
-                    labels=added["message"].get("labelIds", []),
-                ))
-            for deleted in record.get("messagesDeleted", []):
-                changes.append(HistoryChange(
-                    message_id=deleted["message"]["id"],
-                    change_type="deleted",
-                ))
-            for label_added in record.get("labelsAdded", []):
-                changes.append(HistoryChange(
-                    message_id=label_added["message"]["id"],
-                    change_type="labelAdded",
-                    labels=label_added.get("labelIds", []),
-                ))
-            for label_removed in record.get("labelsRemoved", []):
-                changes.append(HistoryChange(
-                    message_id=label_removed["message"]["id"],
-                    change_type="labelRemoved",
-                    labels=label_removed.get("labelIds", []),
-                ))
+        while True:
+            kwargs = {"userId": "me", "startHistoryId": start_history_id}
+            if page_token:
+                kwargs["pageToken"] = page_token
+            response = (
+                self._service.users()
+                .history()
+                .list(**kwargs)
+                .execute()
+            )
+            new_history_id = response.get("historyId", new_history_id)
+
+            for record in response.get("history", []):
+                for added in record.get("messagesAdded", []):
+                    changes.append(HistoryChange(
+                        message_id=added["message"]["id"],
+                        change_type="added",
+                        labels=added["message"].get("labelIds", []),
+                    ))
+                for deleted in record.get("messagesDeleted", []):
+                    changes.append(HistoryChange(
+                        message_id=deleted["message"]["id"],
+                        change_type="deleted",
+                    ))
+                for label_added in record.get("labelsAdded", []):
+                    changes.append(HistoryChange(
+                        message_id=label_added["message"]["id"],
+                        change_type="labelAdded",
+                        labels=label_added.get("labelIds", []),
+                    ))
+                for label_removed in record.get("labelsRemoved", []):
+                    changes.append(HistoryChange(
+                        message_id=label_removed["message"]["id"],
+                        change_type="labelRemoved",
+                        labels=label_removed.get("labelIds", []),
+                    ))
+
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
 
         return changes, new_history_id
 
@@ -254,6 +268,20 @@ class GmailProvider(EmailProvider):
             userId="me", id=message_id,
             body={"removeLabelIds": ["INBOX"]},
         ).execute()
+
+    def fetch_message(self, message_id: str) -> "EmailMessage":
+        """Fetch and parse a single message by ID."""
+        return self._fetch_and_parse(message_id)
+
+    def create_label(self, name: str, visibility: str = "labelShow") -> "Label":
+        """Create a new Gmail label."""
+        self._check_token_freshness()
+        result = self._service.users().labels().create(
+            userId="me",
+            body={"name": name, "labelListVisibility": visibility,
+                  "messageListVisibility": "show"},
+        ).execute()
+        return Label(id=result["id"], name=result["name"], type=result.get("type", "user"))
 
     # --- Internal helpers ---
 

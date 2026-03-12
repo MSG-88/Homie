@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
 CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority, date DESC);
 """
 
-_MIGRATIONS: dict[int, callable] = {}
+_MIGRATIONS: dict[int, object] = {}
 
 
 def create_vault_db(path: Path) -> sqlite3.Connection:

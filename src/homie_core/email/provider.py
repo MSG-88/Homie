@@ -81,3 +81,11 @@ class EmailProvider(ABC):
     @abstractmethod
     def archive(self, message_id: str) -> None:
         """Archive a message (remove from inbox)."""
+
+    @abstractmethod
+    def fetch_message(self, message_id: str) -> EmailMessage:
+        """Fetch and parse a single message by ID."""
+
+    @abstractmethod
+    def create_label(self, name: str, visibility: str = "labelShow") -> Label:
+        """Create a new label. Returns the created Label."""

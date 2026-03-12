@@ -246,12 +246,8 @@ class EmailService:
                 label_ids[category] = existing[label_name]
             else:
                 try:
-                    result = provider._service.users().labels().create(
-                        userId="me",
-                        body={"name": label_name, "labelListVisibility": "labelShow",
-                              "messageListVisibility": "show"},
-                    ).execute()
-                    label_ids[category] = result["id"]
+                    label = provider.create_label(label_name)
+                    label_ids[category] = label.id
                 except Exception:
                     pass
         return label_ids
