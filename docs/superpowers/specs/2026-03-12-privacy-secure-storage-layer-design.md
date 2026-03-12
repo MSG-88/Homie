@@ -27,7 +27,7 @@ This module is the foundation for all integration sub-projects:
 OS Keyring (Windows Credential Manager / macOS Keychain / Linux Secret Service)
   └── master_key (32 bytes, os.urandom)
       └── Optional password layer: PBKDF2(password, salt, 600k iterations)
-          └── HKDF-SHA256(master_key, salt=category_name) per category:
+          └── HKDF-SHA256(master_key, info=category_name) per category:
               ├── credentials_key
               ├── profiles_key
               ├── financial_key
@@ -39,8 +39,13 @@ OS Keyring (Windows Credential Manager / macOS Keychain / Linux Secret Service)
 - **Algorithm:** AES-256-GCM (authenticated encryption with tamper detection)
 - **Per-field encryption:** Each sensitive field encrypted independently with its own random 12-byte nonce
 - **Storage format:** `nonce (12B) || ciphertext || tag (16B)`, base64-encoded in SQLite TEXT columns
-- **Key derivation:** HKDF-SHA256 from master key + category name as salt
-- **Password layer:** Optional. PBKDF2 with 600k iterations encrypts the master key before keyring storage
+- **Key derivation:** `HKDF(algorithm=SHA256, length=32, salt=None, info=b"credentials")` — the category name is passed as the `info` parameter (context), not the `salt`. This follows RFC 5869 correctly: salt is optional randomness, info is application-specific context.
+- **Password layer:** Optional. When enabled, the master key is encrypted with a password-derived key before storage in the OS keyring:
+  1. User provides password
+  2. `password_key = PBKDF2(password, salt, 600k iterations)` → 32-byte key
+  3. `encrypted_master = AES-256-GCM(password_key, master_key)` → stored in keyring
+  4. `salt` stored alongside in keyring (service: `homie-vault`, username: `password-salt`)
+  5. On unlock: retrieve encrypted master + salt → PBKDF2 derive → AES-GCM decrypt → master key
 - **Key material:** Stored in mutable `bytearray` (not `bytes`) so keys can be zeroed on lock
 
 ---
@@ -54,16 +59,19 @@ Two SQLite databases with clear separation of encrypted and plaintext data.
 ```sql
 -- OAuth tokens, API keys, refresh tokens
 CREATE TABLE credentials (
-    id TEXT PRIMARY KEY,           -- "gmail:user@example.com"
+    id TEXT PRIMARY KEY,           -- "gmail:user@example.com" (provider:account_id)
     provider TEXT NOT NULL,        -- "gmail", "linkedin", "slack", etc.
+    account_id TEXT NOT NULL,      -- User identifier (email, username, etc.)
     token_type TEXT NOT NULL,      -- "oauth2", "api_key", "app_password"
     access_token TEXT NOT NULL,    -- AES-256-GCM encrypted
     refresh_token TEXT,            -- AES-256-GCM encrypted
     expires_at REAL,               -- Unix timestamp (plaintext for query efficiency)
     scopes TEXT,                   -- JSON array of granted scopes (plaintext)
+    active INTEGER DEFAULT 1,     -- 1 = active, 0 = deactivated (credentials kept encrypted)
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+-- Supports multiple accounts per provider (e.g., two Gmail accounts)
 
 -- User identity and linked account metadata
 CREATE TABLE user_profiles (
@@ -77,12 +85,13 @@ CREATE TABLE user_profiles (
 );
 
 -- Full audit trail of user consent decisions (append-only)
+-- Stored in vault.db for integrity; reason field encrypted as it may contain user text
 CREATE TABLE consent_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,        -- "gmail", "linkedin", etc.
     action TEXT NOT NULL,          -- "connected", "declined", "disconnected", "reauthorized"
-    scopes TEXT,                   -- What was granted/revoked
-    reason TEXT,                   -- Why (user-initiated, just-in-time prompt, etc.)
+    scopes TEXT,                   -- What was granted/revoked (plaintext, not sensitive)
+    reason TEXT,                   -- AES-256-GCM encrypted (may contain user-authored text)
     timestamp REAL NOT NULL
 );
 
@@ -118,11 +127,15 @@ CREATE TABLE folder_watches (
 );
 
 -- Content analysis results and indexes
+-- NOTE: summaries derived from encrypted sources (emails) are sanitized via
+-- redact_sensitive_text() before storage. They contain topic abstractions,
+-- not raw email content. If stronger guarantees are needed, summaries from
+-- email sources can be moved to vault.db in a future iteration.
 CREATE TABLE content_index (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,          -- "folder:/path/file" or "email:msg_id"
     content_type TEXT NOT NULL,    -- "document", "code", "image", "spreadsheet"
-    summary TEXT,
+    summary TEXT,                  -- Sanitized summary (no raw sensitive data)
     topics TEXT,                   -- JSON array of detected topics
     embeddings BLOB,              -- Vector embeddings for RAG
     indexed_at REAL NOT NULL
@@ -144,37 +157,73 @@ CREATE TABLE connection_status (
 
 ## SecureVault API
 
+### Thread Safety
+
+`SecureVault` is thread-safe. All database operations use a `threading.Lock` per database connection. SQLite is opened with `WAL` journal mode for concurrent read performance. The daemon's multiple threads (main, observer, scheduler) can safely call vault methods concurrently.
+
+### Exception Hierarchy
+
+```python
+class VaultError(Exception): ...              # Base for all vault errors
+class VaultLockedError(VaultError): ...       # Operation attempted while vault is locked
+class VaultAuthError(VaultError): ...         # Wrong password or corrupted master key
+class VaultCorruptError(VaultError): ...      # DB corruption or tampered ciphertext (GCM auth fail)
+class CredentialNotFoundError(VaultError): ...# Requested credential does not exist
+class RateLimitError(VaultError): ...         # Too many failed unlock attempts
+```
+
+### API Surface
+
 ```python
 class SecureVault:
-    """Single entry point for all secure storage operations."""
+    """Single entry point for all secure storage operations.
+
+    Thread-safe. All methods raise VaultLockedError if called before unlock().
+    """
 
     def __init__(self, storage_dir: str | Path = "~/.homie/vault"): ...
 
     # Lifecycle
-    def unlock(self, password: str | None = None) -> None: ...
+    def unlock(self, password: str | None = None) -> None:
+        """Unlock vault. Raises VaultAuthError on wrong password,
+        RateLimitError after 5 consecutive failures (60s cooldown)."""
     def lock(self) -> None:                     # Zeros all derived keys in memory
     def is_unlocked(self) -> bool: ...
     def set_password(self, password: str) -> None: ...
-    def export_vault(self, path: Path, password: str) -> None: ...
+    def export_vault(self, path: Path, password: str) -> None:
+        """Export as AES-256-GCM encrypted file. Format: JSON with all tables,
+        encrypted with PBKDF2-derived key from the provided password."""
     def import_vault(self, path: Path, password: str) -> None: ...
 
-    # Credentials
-    def store_credential(self, provider: str, token_type: str,
-                        access_token: str, refresh_token: str | None = None,
+    # Credentials (supports multiple accounts per provider via credential_id)
+    def store_credential(self, provider: str, account_id: str,
+                        token_type: str, access_token: str,
+                        refresh_token: str | None = None,
                         expires_at: float | None = None,
-                        scopes: list[str] | None = None) -> None: ...
-    def get_credential(self, provider: str) -> Credential | None: ...
-    def refresh_credential(self, provider: str,
+                        scopes: list[str] | None = None) -> str:
+        """Returns credential_id ('{provider}:{account_id}')."""
+    def get_credential(self, provider: str,
+                      account_id: str | None = None) -> Credential | None:
+        """If account_id is None, returns first active credential for provider."""
+    def list_credentials(self, provider: str) -> list[Credential]:
+        """List all credentials (active + inactive) for a provider."""
+    def refresh_credential(self, credential_id: str,
                           new_access_token: str,
-                          new_expires_at: float | None = None) -> None: ...
-    def deactivate_credential(self, provider: str) -> None: ...
-    def delete_credential(self, provider: str) -> None: ...
+                          new_expires_at: float | None = None) -> None:
+        """Atomic token refresh. Uses a per-credential lock to prevent
+        race conditions when SyncManager and user queries both detect expiry."""
+    def deactivate_credential(self, credential_id: str) -> None:
+        """Sets active=0. Credentials stay encrypted in vault. Reversible."""
+    def delete_credential(self, credential_id: str) -> None:
+        """Permanent removal. Caller must confirm with user first.
+        Runs VACUUM on vault.db to reclaim space from deleted rows."""
 
     # User Profiles
-    def store_profile(self, provider: str, display_name: str | None = None,
+    def store_profile(self, profile_id: str, display_name: str | None = None,
                      email: str | None = None, phone: str | None = None,
-                     metadata: dict | None = None) -> None: ...
-    def get_profile(self, provider: str) -> UserProfile | None: ...
+                     metadata: dict | None = None) -> None:
+        """profile_id: 'primary' or '{provider}:{account_id}'."""
+    def get_profile(self, profile_id: str) -> UserProfile | None: ...
 
     # Consent Management
     def log_consent(self, provider: str, action: str,
@@ -193,7 +242,7 @@ class SecureVault:
                        category: str | None = None) -> list[FinancialRecord]: ...
     def update_financial(self, record_id: int, **kwargs) -> None: ...
 
-    # Connection Status
+    # Connection Status (reads from cache.db, no decryption needed)
     def set_connection_status(self, provider: str, connected: bool,
                              label: str | None = None,
                              mode: str = "always_on",
@@ -270,7 +319,49 @@ homie consent-log [provider]          # Full audit trail
 ### Session end / lock
 1. Zero all derived keys in memory (overwrite `bytearray` with `\x00`)
 2. Close DB connections
-3. For on_demand providers: revoke active tokens
+3. Read `connection_status` table for providers with `connection_mode = 'on_demand'` and revoke their active tokens
+
+---
+
+## Edge Cases & Resilience
+
+### Keyring unavailable
+On headless Linux (no D-Bus Secret Service) or CI environments:
+1. `keyring` library is tried first
+2. If it fails, fall back to file-based key storage at `~/.homie/vault/.keyfile` (permissions 0600)
+3. Print a warning: "OS keyring not available. Using file-based key storage — set a master password for security."
+4. If file-based fallback is used, strongly recommend (but don't force) setting a master password
+
+### Corrupt database recovery
+- SQLite is opened with `PRAGMA journal_mode=WAL` for crash safety
+- On startup, run `PRAGMA integrity_check` on both databases
+- If corruption detected: attempt `PRAGMA recover` (SQLite 3.29+), log the event
+- If recovery fails: rename corrupt file to `vault.db.corrupt.{timestamp}`, create fresh database, warn user
+
+### Concurrent daemon instances
+- On startup, create a PID lock file at `~/.homie/vault/.lock`
+- If lock file exists and the PID is still running, refuse to start with a clear error
+- Stale lock files (PID not running) are cleaned up automatically
+
+### Token refresh race condition
+- `refresh_credential()` uses a per-credential lock (keyed by credential_id)
+- If SyncManager and a user query both detect expiry, only the first caller performs the refresh
+- The second caller re-reads the credential and finds a fresh token
+
+### Master key rotation (future consideration)
+- Not in initial implementation scope
+- When added: generate new master key, re-derive all category keys, re-encrypt all fields, atomic swap via SQLite transaction
+
+### Schema migrations
+- `vault.meta.json` tracks `schema_version` (integer, starts at 1)
+- `schema.py` contains a migration registry: `{version: migration_fn}`
+- On startup, compare `schema_version` to latest, run pending migrations in order within a transaction
+- Migrations are forward-only (no rollback)
+
+### Brute force rate limiting persistence
+- Failed unlock attempt count and lockout timestamp stored in `vault.meta.json`
+- Survives daemon restarts — attacker cannot reset counter by restarting the process
+- Counter resets only after a successful unlock
 
 ---
 
@@ -285,7 +376,9 @@ homie consent-log [provider]          # Full audit trail
 | Prompt injection via email | Existing `injection_detector.py` scans external content |
 | Brute force password | PBKDF2 600k iterations; rate limit: 5 failures → 60s cooldown |
 | Stale tokens | Auto-refresh with failure notification; never store plaintext passwords |
-| Backup exposure | `export_vault()` always password-encrypted, independent of keyring |
+| Backup exposure | `export_vault()` always password-encrypted (AES-256-GCM with PBKDF2-derived key), independent of keyring |
+| Timing metadata exposure | `expires_at` and `due_date` stored plaintext for query efficiency — reveals token issuance timing. Accepted trade-off: this metadata is low-sensitivity compared to the tokens themselves |
+| Deleted data remnants | `delete_credential()` runs `VACUUM` to reclaim free pages. On SSDs with wear leveling, true secure deletion is impossible — acknowledged limitation. Password layer provides defense-in-depth |
 
 ### File permissions
 
