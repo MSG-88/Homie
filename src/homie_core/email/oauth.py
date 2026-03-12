@@ -9,8 +9,10 @@ Handles:
 """
 from __future__ import annotations
 
+import html
 import http.server
 import json
+import queue
 import threading
 import time
 import urllib.parse
@@ -71,31 +73,40 @@ def exchange_code(
     return resp.json()
 
 
-class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP handler to capture OAuth redirect callback."""
+def _make_callback_handler(result_queue: queue.Queue):
+    """Create a callback handler that writes the auth code to a queue."""
 
-    auth_code: str | None = None
+    class _CallbackHandler(http.server.BaseHTTPRequestHandler):
+        """HTTP handler to capture OAuth redirect callback."""
 
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        params = urllib.parse.parse_qs(parsed.query)
+        def do_GET(self):
+            # Ignore non-callback requests (e.g., favicon.ico)
+            if not self.path.startswith("/callback"):
+                self.send_response(404)
+                self.end_headers()
+                return
 
-        if "code" in params:
-            _CallbackHandler.auth_code = params["code"][0]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            self.wfile.write(b"<html><body><h2>Authorization successful!</h2>"
-                             b"<p>You can close this tab and return to Homie.</p></body></html>")
-        else:
-            error = params.get("error", ["unknown"])[0]
-            self.send_response(400)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            self.wfile.write(f"<html><body><h2>Error: {error}</h2></body></html>".encode())
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
 
-    def log_message(self, format, *args):
-        pass  # Suppress server logs
+            if "code" in params:
+                result_queue.put(params["code"][0])
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<html><body><h2>Authorization successful!</h2>"
+                                 b"<p>You can close this tab and return to Homie.</p></body></html>")
+            else:
+                error = html.escape(params.get("error", ["unknown"])[0])
+                self.send_response(400)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(f"<html><body><h2>Error: {error}</h2></body></html>".encode())
+
+        def log_message(self, format, *args):
+            pass  # Suppress server logs
+
+    return _CallbackHandler
 
 
 class GmailOAuth:
@@ -112,18 +123,27 @@ class GmailOAuth:
 
     def wait_for_redirect(self, timeout: int = 120) -> str | None:
         """Start local server and wait for OAuth redirect. Returns auth code or None."""
-        _CallbackHandler.auth_code = None
+        result_queue: queue.Queue[str] = queue.Queue()
+        handler_cls = _make_callback_handler(result_queue)
         try:
-            server = http.server.HTTPServer(("localhost", _REDIRECT_PORT), _CallbackHandler)
+            server = http.server.HTTPServer(("localhost", _REDIRECT_PORT), handler_cls)
         except OSError:
             return None  # Port unavailable
 
         server.timeout = timeout
-        thread = threading.Thread(target=server.handle_request, daemon=True)
+
+        def _serve():
+            while result_queue.empty():
+                server.handle_request()
+
+        thread = threading.Thread(target=_serve, daemon=True)
         thread.start()
         thread.join(timeout=timeout + 5)
         server.server_close()
-        return _CallbackHandler.auth_code
+        try:
+            return result_queue.get_nowait()
+        except queue.Empty:
+            return None
 
     def exchange(self, code: str, use_local_server: bool = True) -> dict[str, Any]:
         """Exchange auth code for tokens."""

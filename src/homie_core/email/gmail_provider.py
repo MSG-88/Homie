@@ -179,18 +179,21 @@ class GmailProvider(EmailProvider):
         return [self._fetch_and_parse(mid) for mid in msg_ids]
 
     def apply_label(self, message_id: str, label_id: str) -> None:
+        self._check_token_freshness()
         self._service.users().messages().modify(
             userId="me", id=message_id,
             body={"addLabelIds": [label_id]},
         ).execute()
 
     def remove_label(self, message_id: str, label_id: str) -> None:
+        self._check_token_freshness()
         self._service.users().messages().modify(
             userId="me", id=message_id,
             body={"removeLabelIds": [label_id]},
         ).execute()
 
     def trash(self, message_id: str) -> None:
+        self._check_token_freshness()
         self._service.users().messages().trash(userId="me", id=message_id).execute()
 
     def create_draft(
@@ -203,6 +206,7 @@ class GmailProvider(EmailProvider):
         bcc: list[str] | None = None,
     ) -> str:
         """Create a draft. Returns draft ID."""
+        self._check_token_freshness()
         mime_msg = email.mime.text.MIMEText(body)
         mime_msg["To"] = to
         mime_msg["Subject"] = subject
@@ -226,6 +230,7 @@ class GmailProvider(EmailProvider):
         return result["id"]
 
     def list_labels(self) -> list[Label]:
+        self._check_token_freshness()
         response = self._service.users().labels().list(userId="me").execute()
         return [
             Label(id=l["id"], name=l["name"], type=l.get("type", "user"))
@@ -233,15 +238,18 @@ class GmailProvider(EmailProvider):
         ]
 
     def get_profile(self) -> dict:
+        self._check_token_freshness()
         return self._service.users().getProfile(userId="me").execute()
 
     def mark_read(self, message_id: str) -> None:
+        self._check_token_freshness()
         self._service.users().messages().modify(
             userId="me", id=message_id,
             body={"removeLabelIds": ["UNREAD"]},
         ).execute()
 
     def archive(self, message_id: str) -> None:
+        self._check_token_freshness()
         self._service.users().messages().modify(
             userId="me", id=message_id,
             body={"removeLabelIds": ["INBOX"]},
