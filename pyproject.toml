@@ -84,7 +84,10 @@ email = [
     "google-auth-oauthlib>=1.2",
     "google-auth-httplib2>=0.2",
 ]
-all = ["homie-ai[model,voice,context,storage,app,neural,email]"]
+social = [
+    "requests>=2.31",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
