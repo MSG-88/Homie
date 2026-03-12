@@ -564,6 +564,52 @@ def _handle_meta_command(command: str, brain, wm, sm, em, cfg) -> str | None:
         except Exception as e:
             return f"Could not check connections: {e}"
 
+    if cmd.startswith("/consent-log "):
+        provider = command[13:].strip()
+        if not provider:
+            return "Usage: /consent-log <provider>"
+        try:
+            from datetime import datetime
+            from homie_core.vault.secure_vault import SecureVault
+            vault = SecureVault()
+            vault.unlock()
+            history = vault.get_consent_history(provider)
+            vault.lock()
+            if not history:
+                return f"No consent history for '{provider}'."
+            lines = [f"**Consent log for {provider}:**"]
+            for entry in history:
+                dt = datetime.fromtimestamp(entry.timestamp).strftime("%Y-%m-%d %H:%M")
+                lines.append(f"  {dt}  {entry.action}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Could not check consent log: {e}"
+
+    if cmd == "/vault":
+        try:
+            from homie_core.vault.secure_vault import SecureVault
+            vault = SecureVault()
+            vault.unlock()
+            connections = vault.get_all_connections()
+            active = sum(1 for c in connections if c.connected)
+            has_pw = vault.has_password
+            vault.lock()
+            return (
+                f"**Vault Status:**\n"
+                f"  Connections: {active} active / {len(connections)} total\n"
+                f"  Password: {'set' if has_pw else 'not set'}"
+            )
+        except Exception as e:
+            return f"Could not check vault: {e}"
+
+    if cmd.startswith("/connect "):
+        provider = command[9:].strip()
+        return f"Connecting to {provider}... OAuth integration coming in email/social sub-projects."
+
+    if cmd.startswith("/disconnect "):
+        provider = command[12:].strip()
+        return f"To disconnect {provider}, use the CLI: homie disconnect {provider}"
+
     if cmd == "/help":
         return (
             "**Homie Commands:**\n"
@@ -576,6 +622,10 @@ def _handle_meta_command(command: str, brain, wm, sm, em, cfg) -> str | None:
             "  /schedule    — Create scheduled task (e.g., /schedule name every_2h prompt)\n"
             "  /skills      — List installed skills\n"
             "  /connections — Show connected providers\n"
+            "  /consent-log — Show consent audit trail (e.g., /consent-log gmail)\n"
+            "  /vault       — Show vault status\n"
+            "  /connect     — Connect a provider (e.g., /connect gmail)\n"
+            "  /disconnect  — Disconnect a provider (e.g., /disconnect gmail)\n"
             "  /clear       — Clear conversation (fresh start)\n"
             "  /help        — Show this help\n"
             "  quit         — Exit chat"
@@ -875,6 +925,7 @@ def cmd_connections(args, config=None):
 
 def cmd_consent_log(args, config=None):
     """Show consent audit trail for a provider."""
+    from datetime import datetime
     from homie_core.vault.secure_vault import SecureVault
     provider = args.provider
     vault = SecureVault()
@@ -885,7 +936,6 @@ def cmd_consent_log(args, config=None):
             print(f"No consent history for '{provider}'.")
             return
         for entry in history:
-            from datetime import datetime
             dt = datetime.fromtimestamp(entry.timestamp).strftime("%Y-%m-%d %H:%M")
             scopes_str = ", ".join(entry.scopes) if entry.scopes else ""
             reason_str = f"  reason: {entry.reason}" if entry.reason else ""
@@ -905,7 +955,7 @@ def cmd_vault_status(args, config=None):
         vault.unlock()
         connections = vault.get_all_connections()
         active = sum(1 for c in connections if c.connected)
-        vault_path = Path.home() / ".homie" / "vault"
+        vault_path = vault._storage_dir
         vault_size = (vault_path / "vault.db").stat().st_size if (vault_path / "vault.db").exists() else 0
         cache_size = (vault_path / "cache.db").stat().st_size if (vault_path / "cache.db").exists() else 0
 

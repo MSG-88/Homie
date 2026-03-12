@@ -419,9 +419,10 @@ class HomieDaemon:
                     except Exception:
                         pass
                     try:
-                        sync_results = self._vault_sync.tick()
-                        for provider, output in sync_results:
-                            print(f"  [Sync] {provider}: {output[:100]}")
+                        if self._vault_sync:
+                            sync_results = self._vault_sync.tick()
+                            for provider, output in sync_results:
+                                print(f"  [Sync] {provider}: {output[:100]}")
                     except Exception:
                         pass
         except KeyboardInterrupt:
