@@ -11,3 +11,4 @@ build/
 *.log
 .env
 homie.config.yaml
+.superpowers/

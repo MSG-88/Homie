@@ -120,6 +120,14 @@ class HomieDaemon:
         except Exception as e:
             print(f"  Vault: failed to unlock ({e})")
 
+        # Auto-provision internal cloud AI key on first run
+        try:
+            from homie_core.cloud_ai_provision import provision as _provision_cloud
+            if _provision_cloud(self._vault):
+                print("  Cloud AI: provisioned")
+        except Exception:
+            pass
+
         # Vault sync manager (callbacks registered by sub-projects)
         self._vault_sync = VaultSyncManager(vault=self._vault)
 
@@ -523,13 +531,18 @@ class HomieDaemon:
                     ),
                 )
 
+            # Internal cloud AI fallback — if no model is configured,
+            # try the internal cloud backend stored in the vault.
+            if not entry:
+                entry = self._resolve_internal_cloud(entry)
+
             if entry:
                 kwargs = {}
                 if entry.format == "hf":
                     kwargs["api_key"] = self._config.llm.api_key or os.environ.get("HF_KEY", "")
                 elif entry.format == "cloud":
-                    kwargs["api_key"] = self._config.llm.api_key
-                    kwargs["base_url"] = self._config.llm.api_base_url or "https://api.openai.com/v1"
+                    kwargs["api_key"] = self._config.llm.api_key or entry.repo_id
+                    kwargs["base_url"] = self._config.llm.api_base_url or getattr(entry, "_base_url", "https://api.openai.com/v1")
                 else:
                     kwargs["n_ctx"] = self._config.llm.context_length
                     kwargs["n_gpu_layers"] = self._config.llm.gpu_layers
@@ -537,6 +550,32 @@ class HomieDaemon:
                 self._engine = engine
         except Exception:
             self._engine = None
+
+    def _resolve_internal_cloud(self, current_entry) -> Optional["ModelEntry"]:
+        """Try to resolve an internal cloud AI backend from the vault."""
+        try:
+            from homie_core.cloud_ai import get_cloud_config
+            from homie_core.model.registry import ModelEntry
+
+            cloud_cfg = get_cloud_config(self._vault)
+            if cloud_cfg:
+                entry = ModelEntry(
+                    name="internal-cloud",
+                    path=cloud_cfg["model"],
+                    format="cloud",
+                    params="cloud",
+                    repo_id=cloud_cfg["api_key"],
+                )
+                # Stash base_url so _load_engine can pick it up
+                entry._base_url = cloud_cfg["base_url"]
+                # Also set on config so downstream code sees it
+                self._config.llm.api_key = cloud_cfg["api_key"]
+                self._config.llm.api_base_url = cloud_cfg["base_url"]
+                self._config.llm.backend = "cloud"
+                return entry
+        except Exception:
+            pass
+        return current_entry
 
     def start(self) -> None:
         self._running = True
