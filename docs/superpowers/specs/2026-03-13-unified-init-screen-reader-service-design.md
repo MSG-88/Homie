@@ -388,7 +388,7 @@ The existing `SocialMediaOAuth` class needs a breaking change to support PKCE (r
 - `use_pkce: bool = False` — when True, generates `code_verifier` and `code_challenge`
 - `is_public_client: bool = False` — when True, omits `client_secret` from token exchange
 
-**Changes to `build_auth_url()`:**
+**Changes to `get_auth_url()`:**
 - When `use_pkce=True`: append `code_challenge` and `code_challenge_method=S256` to auth URL
 
 **Changes to `exchange()`:**
@@ -631,7 +631,7 @@ messaging = ["telethon>=1.34"]
 screen_reader = ["mss>=9.0", "Pillow>=10.0", "pywin32>=306"]
 service = ["windows-toasts>=1.0", "plyer>=2.1"]
 # Updated 'all' extra includes new groups
-all = ["homie[voice,model,storage,app,neural,email,social,messaging,screen_reader,service]"]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen_reader,service]"]
 ```
 
 ### 10.6 Migration Path for Existing Users
