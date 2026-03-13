@@ -132,3 +132,21 @@ class TestDynamicSystemPrompt:
         from homie_app.prompts.system import SYSTEM_PROMPT
         assert "Homie" in SYSTEM_PROMPT
         assert len(SYSTEM_PROMPT) > 200
+
+
+# -----------------------------------------------------------------------
+# Stop and Status command tests
+# -----------------------------------------------------------------------
+
+class TestStopCommand:
+    def test_parser_has_stop(self):
+        parser = create_parser()
+        args = parser.parse_args(["stop"])
+        assert args.command == "stop"
+
+
+class TestStatusCommand:
+    def test_parser_has_status(self):
+        parser = create_parser()
+        args = parser.parse_args(["status"])
+        assert args.command == "status"

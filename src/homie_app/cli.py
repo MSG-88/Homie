@@ -179,6 +179,12 @@ def create_parser() -> argparse.ArgumentParser:
     voice_parser.add_argument("--tts", choices=["auto", "fast", "quality", "multilingual"])
     voice_parser.add_argument("--lang", help="Force language (en, ta, te, ml, fr, es)")
 
+    # homie stop
+    subparsers.add_parser("stop", help="Stop Homie service")
+
+    # homie status
+    subparsers.add_parser("status", help="Show Homie status")
+
     return parser
 
 
@@ -1712,6 +1718,25 @@ def cmd_voice(args, config=None):
         daemon.stop()
 
 
+def cmd_stop(args, config=None):
+    from homie_app.service.scheduler_task import ServiceManager
+    mgr = ServiceManager()
+    print(mgr.status())
+    # TODO: Send stop signal to running daemon via PID file or named pipe
+
+
+def cmd_status(args, config=None):
+    from homie_app.service.scheduler_task import ServiceManager
+    mgr = ServiceManager()
+    status = mgr.status()
+    print(f"Service: {status}")
+    if config is not None:
+        print(f"Voice: {'enabled' if config.voice.enabled else 'disabled'}")
+        print(f"Screen Reader: {'level ' + str(config.screen_reader.level) if config.screen_reader.enabled else 'off'}")
+        connected = [k.replace('_connected', '') for k, v in config.connections.model_dump().items() if v is True and k.endswith('_connected')]
+        print(f"Connections: {', '.join(connected) if connected else 'none'}")
+
+
 def main(argv: list[str] | None = None):
     parser = create_parser()
     args = parser.parse_args(argv)
@@ -1744,6 +1769,8 @@ def main(argv: list[str] | None = None):
         "sm": cmd_sm,
         "browser": cmd_browser,
         "voice": cmd_voice,
+        "stop": cmd_stop,
+        "status": cmd_status,
     }
 
     handler = commands.get(args.command)
