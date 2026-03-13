@@ -9,9 +9,11 @@ def register_all_commands(router: SlashCommandRouter, ctx: dict) -> None:
 
     from homie_app.console.commands.help import register as reg_help
     from homie_app.console.commands.memory import register as reg_memory
+    from homie_app.console.commands.connect import register as reg_connect
 
     reg_help(router, ctx)
     reg_memory(router, ctx)
+    reg_connect(router, ctx)
 
     # Quit is handled by Console.run() directly before router dispatch
     router.register(SlashCommand(
