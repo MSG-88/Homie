@@ -1,0 +1,60 @@
+llm:
+  backend: gguf
+  context_length: 65536
+  gpu_layers: -1
+  max_tokens: 2048
+  model_path: C:\Users\muthu\.lmstudio\models\lmstudio-community\Qwen3.5-35B-A3B-GGUF\Qwen3.5-35B-A3B-Q4_K_M.gguf
+  repo_id: lmstudio-community/Qwen3.5-35B-A3B-GGUF
+  temperature: 0.7
+plugins:
+  enabled: []
+  plugin_dirs: []
+privacy:
+  data_retention_days: 30
+  max_storage_mb: 512
+  observers:
+    browsing: false
+    emotional: false
+    media: false
+    routine: true
+    social: false
+    work: true
+storage:
+  backup_dir: backups
+  chroma_dir: chroma
+  db_name: homie.db
+  log_dir: logs
+  models_dir: models
+  path: C:\Users\muthu\.homie
+user_name: Master
+voice:
+  enabled: false
+  hotkey: ctrl+8
+  wake_word: "hey homie"
+  mode: hybrid
+
+  stt_engine: faster-whisper
+  stt_model_fast: tiny.en
+  stt_model_quality: medium
+  stt_language: auto
+
+  tts_mode: auto
+  tts_voice_fast: piper
+  tts_voice_quality: kokoro
+  tts_voice_multilingual: melo
+
+  vad_engine: silero
+  vad_threshold: 0.5
+  vad_silence_ms: 300
+
+  barge_in: true
+  conversation_timeout: 120
+  max_exit_prompts: 3
+  exit_phrases:
+    - "goodbye"
+    - "stop"
+    - "that's all"
+
+  device: auto
+  audio_sample_rate: 16000
+  audio_chunk_size: 512
