@@ -90,7 +90,10 @@ email = [
 social = [
     "requests>=2.31",
 ]
-all = ["homie-ai[model,voice,context,storage,app,neural,email,social]"]
+messaging = ["telethon>=1.34"]
+screen-reader = ["mss>=9.0", "Pillow>=10.0", "pywin32>=306"]
+service = ["windows-toasts>=1.0", "plyer>=2.1"]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
