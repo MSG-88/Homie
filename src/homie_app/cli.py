@@ -133,6 +133,42 @@ def create_parser() -> argparse.ArgumentParser:
     sr.add_argument("channel", type=str, help="Channel ID")
     sr.add_argument("--limit", type=int, default=20)
 
+    # homie sm (social media profiles)
+    sm_parser = subparsers.add_parser("sm", help="Social media operations")
+    sm_sub = sm_parser.add_subparsers(dest="sm_command")
+    sm_feed = sm_sub.add_parser("feed", help="Get social media feed")
+    sm_feed.add_argument("--platform", default="all", help="Platform name or 'all'")
+    sm_feed.add_argument("--limit", type=int, default=20)
+    sm_profile = sm_sub.add_parser("profile", help="Get profile info")
+    sm_profile.add_argument("--platform", required=True)
+    sm_profile.add_argument("--username", default="")
+    sm_sub.add_parser("scan", help="Full profile scan + intelligence")
+    sm_publish = sm_sub.add_parser("publish", help="Publish a post")
+    sm_publish.add_argument("platform")
+    sm_publish.add_argument("content")
+    sm_dms = sm_sub.add_parser("dms", help="View DM conversations")
+    sm_dms.add_argument("platform")
+    sm_dms.add_argument("--conversation", default="")
+    sm_send = sm_sub.add_parser("send-dm", help="Send a DM")
+    sm_send.add_argument("platform")
+    sm_send.add_argument("recipient")
+    sm_send.add_argument("text")
+
+    # homie browser
+    browser_parser = subparsers.add_parser("browser", help="Browser history")
+    browser_sub = browser_parser.add_subparsers(dest="browser_command")
+    br_enable = browser_sub.add_parser("enable", help="Enable browser history tracking")
+    br_enable.add_argument("--browsers", default="chrome")
+    browser_sub.add_parser("disable", help="Disable browser history tracking")
+    br_config = browser_sub.add_parser("config", help="Configure browser history")
+    br_config.add_argument("--exclude", default="")
+    br_config.add_argument("--retention", type=int, default=0)
+    br_history = browser_sub.add_parser("history", help="View browsing history")
+    br_history.add_argument("--limit", type=int, default=50)
+    br_history.add_argument("--domain", default="")
+    browser_sub.add_parser("scan", help="Full history scan")
+    browser_sub.add_parser("patterns", help="Browsing patterns analysis")
+
     return parser
 
 
@@ -1018,8 +1054,31 @@ def cmd_connect(args, config=None):
     if provider == "slack":
         _connect_slack(args, config=cfg)
         return
+    if provider == "blog":
+        _connect_blog(args, config=cfg)
+        return
+    _SM_PLATFORMS = {
+        "twitter": ("https://twitter.com/i/oauth2/authorize",
+                     "https://api.twitter.com/2/oauth2/token",
+                     ["tweet.read", "tweet.write", "users.read", "dm.read", "dm.write", "offline.access"], 8551),
+        "reddit": ("https://www.reddit.com/api/v1/authorize",
+                    "https://www.reddit.com/api/v1/access_token",
+                    ["identity", "read", "submit", "privatemessages"], 8552),
+        "linkedin": ("https://www.linkedin.com/oauth/v2/authorization",
+                      "https://www.linkedin.com/oauth/v2/accessToken",
+                      ["r_liteprofile", "r_emailaddress", "w_member_social"], 8553),
+        "facebook": ("https://www.facebook.com/v19.0/dialog/oauth",
+                      "https://graph.facebook.com/v19.0/oauth/access_token",
+                      ["public_profile", "email", "pages_read_engagement", "pages_manage_posts"], 8554),
+    }
+    if provider in _SM_PLATFORMS:
+        auth_url, token_url, scopes, port = _SM_PLATFORMS[provider]
+        _connect_social_media(args, config=cfg, platform=provider,
+                              auth_url=auth_url, token_url=token_url,
+                              scopes=scopes, port=port)
+        return
     if provider != "gmail":
-        print(f"Provider '{provider}' not yet supported. Available: gmail, slack")
+        print(f"Provider '{provider}' not yet supported. Available: gmail, slack, twitter, reddit, linkedin, facebook, blog")
         return
 
     from homie_core.email.oauth import GmailOAuth, GMAIL_SCOPES
@@ -1307,6 +1366,206 @@ def cmd_folder(args, config=None):
     cache_conn.close()
 
 
+def _connect_social_media(args, config=None, platform="", auth_url="", token_url="",
+                          scopes=None, port=8551):
+    """Generic OAuth flow for social media platforms."""
+    import webbrowser
+    from homie_core.social_media.oauth import SocialMediaOAuth
+    from homie_core.vault.secure_vault import SecureVault
+
+    cfg = config
+    storage = Path(cfg.storage.path)
+    vault = SecureVault(storage_dir=storage / "vault")
+    vault.unlock()
+
+    client_cred = vault.get_credential(platform, account_id="oauth_client")
+    if client_cred:
+        client_id = client_cred.access_token
+        client_secret = client_cred.refresh_token
+    else:
+        print(f"\n--- {platform.title()} OAuth Setup ---")
+        print(f"Create an app at the {platform.title()} developer portal.")
+        print(f"Set redirect URI to: http://localhost:{port}/callback\n")
+        client_id = input("Client ID: ").strip()
+        client_secret = input("Client Secret: ").strip()
+        if not client_id or not client_secret:
+            print("Aborted.")
+            vault.lock()
+            return
+        vault.store_credential(
+            provider=platform, account_id="oauth_client",
+            token_type="oauth_client",
+            access_token=client_id, refresh_token=client_secret,
+            scopes=scopes or [],
+        )
+
+    oauth = SocialMediaOAuth(
+        platform=platform, client_id=client_id, client_secret=client_secret,
+        auth_url=auth_url, token_url=token_url,
+        scopes=scopes or [], redirect_port=port,
+    )
+
+    url = oauth.get_auth_url()
+    print(f"\nOpening browser for {platform.title()} authorization...")
+    webbrowser.open(url)
+
+    print(f"Waiting for redirect on port {port} (timeout: 120s)...")
+    code = oauth.wait_for_redirect(timeout=120)
+    if not code:
+        print("Timed out waiting for authorization.")
+        vault.lock()
+        return
+
+    print("Exchanging code for token...")
+    tokens = oauth.exchange(code)
+    access_token = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+
+    if not access_token:
+        print("Failed to get access token.")
+        vault.lock()
+        return
+
+    account_id = tokens.get("user_id", tokens.get("name", f"{platform}_user"))
+    vault.store_credential(
+        provider=platform, account_id=account_id,
+        token_type="oauth2",
+        access_token=access_token, refresh_token=refresh_token,
+        scopes=scopes or [],
+    )
+    vault.set_connection_status(platform, connected=True, label=account_id)
+    vault.log_consent(platform, "connected", scopes=scopes or [])
+    vault.lock()
+    print(f"\n{platform.title()} connected successfully!")
+
+
+def _connect_blog(args, config=None):
+    """Connect a blog via RSS/Atom feed URL."""
+    from homie_core.vault.secure_vault import SecureVault
+
+    cfg = config
+    storage = Path(cfg.storage.path)
+    vault = SecureVault(storage_dir=storage / "vault")
+    vault.unlock()
+
+    url = input("Blog RSS/Atom feed URL: ").strip()
+    if not url:
+        print("Aborted.")
+        vault.lock()
+        return
+
+    vault.store_credential(
+        provider="blog", account_id="blog_feed",
+        token_type="rss", access_token=url, refresh_token="",
+        scopes=[],
+    )
+    vault.set_connection_status("blog", connected=True, label=url[:50])
+    vault.lock()
+    print(f"Blog feed connected: {url}")
+
+
+def cmd_sm(args, config=None):
+    """Social media profile commands."""
+    import json
+    from homie_core.config import load_config
+    from homie_core.vault.secure_vault import SecureVault
+
+    cfg = config or load_config()
+    storage = Path(cfg.storage.path)
+    vault = SecureVault(storage_dir=storage / "vault")
+    vault.unlock()
+
+    from homie_core.social_media import SocialMediaService
+    service = SocialMediaService(vault=vault)
+    service.initialize()
+
+    sub = args.sm_command
+    if sub == "feed":
+        results = service.get_feed(platform=args.platform, limit=args.limit)
+        if not results:
+            print("No posts found.")
+        for post in results:
+            print(f"  [{post.get('platform')}] {post.get('author')}: {post.get('content', '')[:100]}")
+    elif sub == "profile":
+        info = service.get_profile(args.platform, username=args.username or None)
+        print(json.dumps(info, indent=2))
+    elif sub == "scan":
+        print("Scanning all connected profiles...")
+        result = service.scan_profiles()
+        print(json.dumps(result, indent=2))
+    elif sub == "publish":
+        result = service.publish(args.platform, args.content)
+        print(json.dumps(result, indent=2))
+    elif sub == "dms":
+        if args.conversation:
+            msgs = service.get_dms(args.platform, args.conversation)
+            for m in msgs:
+                print(f"  [{m.get('sender')}]: {m.get('content', '')[:100]}")
+        else:
+            convos = service.get_conversations(args.platform)
+            for c in convos:
+                print(f"  [{c.get('id')}] {', '.join(c.get('participants', []))}: "
+                      f"{c.get('last_message_preview', '')[:50]}")
+    elif sub == "send-dm":
+        result = service.send_dm(args.platform, args.recipient, args.text)
+        print(json.dumps(result, indent=2))
+    else:
+        print("Usage: homie sm {feed|profile|scan|publish|dms|send-dm}")
+    vault.lock()
+
+
+def cmd_browser(args, config=None):
+    """Browser history commands."""
+    import json
+    from homie_core.config import load_config
+    from homie_core.vault.secure_vault import SecureVault
+
+    cfg = config or load_config()
+    storage = Path(cfg.storage.path)
+    vault = SecureVault(storage_dir=storage / "vault")
+    vault.unlock()
+
+    from homie_core.browser import BrowserHistoryService
+    service = BrowserHistoryService(vault=vault)
+    service.initialize()
+
+    sub = args.browser_command
+    if sub == "enable":
+        browsers = [b.strip() for b in args.browsers.split(",")]
+        result = service.configure(enabled=True, browsers=browsers)
+        print(f"Browser history enabled for: {', '.join(result['browsers'])}")
+    elif sub == "disable":
+        service.configure(enabled=False)
+        print("Browser history disabled.")
+    elif sub == "config":
+        kwargs = {}
+        if args.exclude:
+            kwargs["exclude_domains"] = [d.strip() for d in args.exclude.split(",")]
+        if args.retention:
+            kwargs["retention_days"] = args.retention
+        if kwargs:
+            result = service.configure(**kwargs)
+        else:
+            result = service.get_config()
+        print(json.dumps(result, indent=2))
+    elif sub == "history":
+        entries = service.get_history(limit=args.limit, domain=args.domain or None)
+        if not entries:
+            print("No history entries found.")
+        for e in entries:
+            print(f"  [{e.get('browser')}] {e.get('title', '')[:50]} — {e.get('url', '')[:80]}")
+    elif sub == "scan":
+        print("Scanning browser history...")
+        result = service.scan()
+        print(json.dumps(result, indent=2))
+    elif sub == "patterns":
+        result = service.get_patterns()
+        print(json.dumps(result, indent=2))
+    else:
+        print("Usage: homie browser {enable|disable|config|history|scan|patterns}")
+    vault.lock()
+
+
 def cmd_social(args, config=None):
     """Social messaging commands."""
     from homie_core.config import load_config
@@ -1414,6 +1673,8 @@ def main(argv: list[str] | None = None):
         }.get(args.email_command, lambda a, c=None: print("Usage: homie email {summary|sync|config}"))(args, cfg),
         "folder": cmd_folder,
         "social": cmd_social,
+        "sm": cmd_sm,
+        "browser": cmd_browser,
     }
 
     handler = commands.get(args.command)
