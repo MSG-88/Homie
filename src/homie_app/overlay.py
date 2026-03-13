@@ -162,3 +162,18 @@ class OverlayPopup:
 
         root.mainloop()
         self._visible = False
+
+    def update_voice_state(self, state: str) -> None:
+        """Update the voice state indicator in the overlay."""
+        if hasattr(self, "_voice_label") and self._voice_label:
+            self._root.after(0, lambda: self._voice_label.config(text=state))
+
+    def update_transcript(self, text: str) -> None:
+        """Update the live STT transcript display."""
+        if hasattr(self, "_transcript_label") and self._transcript_label:
+            self._root.after(0, lambda: self._transcript_label.config(text=f'You: "{text}"'))
+
+    def update_response(self, text: str) -> None:
+        """Update Homie's response text display."""
+        if hasattr(self, "_response_label") and self._response_label:
+            self._root.after(0, lambda: self._response_label.config(text=f"Homie: {text}"))
