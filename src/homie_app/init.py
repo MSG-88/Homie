@@ -106,6 +106,34 @@ def _setup_cloud(cfg: HomieConfig) -> None:
     print(f"  Selected: {cfg.llm.model_path}")
 
 
+def _step_notifications(cfg: HomieConfig) -> None:
+    """Configure notification preferences (settings-only, not in init wizard)."""
+    print("\n  Notification Settings")
+    print(f"  Currently: {'enabled' if cfg.notifications.enabled else 'disabled'}")
+    for cat, enabled in cfg.notifications.categories.items():
+        status = "on" if enabled else "off"
+        label = cat.replace("_", " ").title()
+        toggle = input(f"  {label} [{status}]: ").strip().lower()
+        if toggle in ("on", "off"):
+            cfg.notifications.categories[cat] = toggle == "on"
+
+    dnd = input(f"  DND schedule [{cfg.notifications.dnd_schedule_start}-{cfg.notifications.dnd_schedule_end}] (y to change/n): ").strip().lower()
+    if dnd == "y":
+        cfg.notifications.dnd_schedule_enabled = True
+        cfg.notifications.dnd_schedule_start = input("  DND start time (HH:MM): ").strip() or "22:00"
+        cfg.notifications.dnd_schedule_end = input("  DND end time (HH:MM): ").strip() or "07:00"
+
+
+def _save_config(cfg: HomieConfig, path: str) -> None:
+    """Save config to YAML file."""
+    import yaml
+    from pathlib import Path
+    data = cfg.model_dump()
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
 def run_init(auto: bool = False, config_path: str | None = None) -> HomieConfig:
     print("=" * 50)
     print("  Welcome to Homie AI Setup")
