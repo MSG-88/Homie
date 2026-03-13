@@ -258,6 +258,15 @@ class HomieDaemon:
         # Try to initialize neural components with HF embeddings
         self._init_neural_components()
 
+        # Screen reader
+        self._screen_scheduler = None
+        self._init_screen_reader()
+
+        # Notifications
+        self._notification_router = None
+        self._toast_notifier = None
+        self._init_notifications()
+
         # Proactive suggestion engine
         self._proactive_engine = ProactiveEngine(
             working_memory=self._working_memory,
@@ -376,6 +385,46 @@ class HomieDaemon:
             print("  Neural: PreferenceEngine active")
         except Exception as e:
             print(f"  Neural: preference engine failed ({e})")
+
+    def _init_screen_reader(self) -> None:
+        if not self._config.screen_reader.enabled:
+            return
+        try:
+            from homie_core.screen_reader.capture_scheduler import CaptureScheduler
+            from homie_core.screen_reader.window_tracker import WindowTracker
+            from homie_core.screen_reader.pii_filter import PIIFilter
+            from homie_core.screen_reader.ocr_reader import OCRReader
+            from homie_core.screen_reader.visual_analyzer import VisualAnalyzer
+
+            pii = PIIFilter()
+            tracker = WindowTracker(blocklist=self._config.screen_reader.blocklist)
+            ocr = OCRReader(pii_filter=pii) if self._config.screen_reader.level >= 2 else None
+            visual = None
+            if self._config.screen_reader.level >= 3:
+                visual = VisualAnalyzer(
+                    engine=self._config.screen_reader.analysis_engine,
+                    api_base_url=self._config.llm.api_base_url,
+                    api_key=self._config.llm.api_key,
+                )
+            self._screen_scheduler = CaptureScheduler(
+                config=self._config.screen_reader,
+                window_tracker=tracker,
+                ocr_reader=ocr,
+                visual_analyzer=visual,
+            )
+        except Exception:
+            logger.warning("Screen reader initialization failed", exc_info=True)
+
+    def _init_notifications(self) -> None:
+        if not self._config.notifications.enabled:
+            return
+        try:
+            from homie_core.notifications.router import NotificationRouter
+            from homie_core.notifications.toast import ToastNotifier
+            self._notification_router = NotificationRouter(config=self._config.notifications)
+            self._toast_notifier = ToastNotifier()
+        except Exception:
+            logger.warning("Notification system initialization failed", exc_info=True)
 
     def _execute_scheduled_job(self, job: Job) -> str:
         """Callback for the scheduler — processes a due job's prompt."""
