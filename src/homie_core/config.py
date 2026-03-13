@@ -103,6 +103,22 @@ class UserProfileConfig(BaseModel):
     work_days: list[str] = ["mon", "tue", "wed", "thu", "fri"]
 
 
+class ScreenReaderConfig(BaseModel):
+    enabled: bool = False
+    level: int = Field(default=1, ge=1, le=3)  # 1=window titles, 2=+OCR, 3=+visual
+    poll_interval_t1: int = 5
+    poll_interval_t2: int = 30
+    poll_interval_t3: int = 60
+    event_driven: bool = True
+    analysis_engine: str = "cloud"  # cloud or local
+    pii_filter: bool = True
+    blocklist: list[str] = [
+        "*password*", "*banking*", "*incognito*", "*private*",
+        "*1Password*", "*KeePass*", "*LastPass*",
+    ]
+    dnd: bool = False
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -110,6 +126,7 @@ class HomieConfig(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     plugins: PluginConfig = Field(default_factory=PluginConfig)
     user: UserProfileConfig = Field(default_factory=UserProfileConfig)
+    screen_reader: ScreenReaderConfig = Field(default_factory=ScreenReaderConfig)
     user_name: str = ""
 
 
