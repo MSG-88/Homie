@@ -31,25 +31,21 @@ const modules = [
 
   <div class="hud-divider"></div>
 
-  <!-- Windows CLI Installer -->
+  <!-- Windows MSI Installer -->
   <section class="py-10 px-6 text-center max-w-2xl mx-auto" id="windows-installer">
-    <p class="section-label" style="color: var(--accent-gold);">WINDOWS QUICK INSTALL</p>
+    <p class="section-label" style="color: var(--accent-gold);">WINDOWS INSTALLER</p>
     <div style="border: 2px solid var(--border-gold); padding: 24px; background: var(--bg-card);">
       <div style="font-size: 32px; margin-bottom: 12px;">⊞</div>
       <div style="font-family: var(--font-pixel); font-size: 12px; color: var(--accent-gold); letter-spacing: 3px; margin-bottom: 8px;">WINDOWS 10/11</div>
       <p style="font-family: var(--font-retro); font-size: 15px; color: var(--text-body); margin-bottom: 16px; line-height: 1.6;">
-        One-line install. Includes CLI, background service, system tray, and toast notifications.
+        One-click MSI installer. Includes CLI, background service, system tray, and toast notifications. No Python required.
       </p>
-      <div style="background: #111; border: 1px solid var(--border-gold); padding: 14px 18px; text-align: left; position: relative; margin-bottom: 12px;">
-        <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 8px;">POWERSHELL (ADMIN)</div>
-        <div style="font-family: var(--font-retro); font-size: 16px; color: var(--accent-green);">
-          <span style="color: var(--text-dim);">></span> pip install homie-ai[all]
-        </div>
-        <button
-          class="copy-btn"
-          data-cmd="pip install homie-ai[all]"
-          style="position: absolute; top: 14px; right: 14px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 1px; border: 1px solid var(--text-ghost); padding: 2px 8px; background: none; cursor: pointer;"
-        >COPY</button>
+      <a href="https://github.com/MSG-88/Homie/releases/latest/download/HomieSetup.msi"
+         style="display: inline-block; font-family: var(--font-pixel); font-size: 14px; color: #000; background: var(--accent-gold); padding: 12px 32px; letter-spacing: 3px; text-decoration: none; border: none; cursor: pointer; margin-bottom: 12px;">
+        DOWNLOAD MSI
+      </a>
+      <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint); margin-bottom: 16px;">
+        v0.2.0 &bull; ~400 MB &bull; Includes all modules
       </div>
       <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
         <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); border: 1px solid var(--border-subtle); padding: 4px 10px;">CLI Console</div>
@@ -59,38 +55,51 @@ const modules = [
       </div>
     </div>
 
-    <!-- Post-install steps -->
+    <!-- What the installer does -->
     <div style="border: 1px solid var(--border-subtle); padding: 18px; margin-top: 12px; text-align: left;">
-      <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 10px;">AFTER INSTALL</div>
+      <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 10px;">THE MSI INSTALLS</div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; align-items: baseline; gap: 8px;">
-          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">1</span>
-          <div>
-            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
-              <span style="color: var(--text-dim);">></span> <span style="color: var(--accent-green);">homie</span>
-            </div>
-            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Run setup wizard — picks the best model for your hardware</div>
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-green);">&#10003;</span>
+          <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-body);">
+            <span style="color: var(--accent-green);">homie.exe</span> and <span style="color: var(--accent-green);">homie-daemon.exe</span> to your system
           </div>
         </div>
         <div style="display: flex; align-items: baseline; gap: 8px;">
-          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">2</span>
-          <div>
-            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
-              <span style="color: var(--text-dim);">></span> <span style="color: var(--accent-green);">homie daemon --headless</span>
-            </div>
-            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Start background service — tray icon, email intel, toast notifications</div>
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-green);">&#10003;</span>
+          <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-body);">
+            Adds <span style="color: var(--accent-gold);">homie</span> to PATH — use from any terminal
           </div>
         </div>
         <div style="display: flex; align-items: baseline; gap: 8px;">
-          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">3</span>
-          <div>
-            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
-              <span style="color: var(--text-dim);">/</span><span style="color: var(--accent-green);">daemon install</span>
-            </div>
-            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Auto-start on login — runs silently via Windows Task Scheduler</div>
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-green);">&#10003;</span>
+          <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-body);">
+            Start Menu shortcuts for console and background daemon
+          </div>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-green);">&#10003;</span>
+          <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-body);">
+            Auto-starts daemon on login — runs silently in background
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- pip alternative -->
+    <div style="border: 1px solid var(--border-subtle); padding: 14px; margin-top: 12px; text-align: left;">
+      <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 8px;">DEVELOPER INSTALL (ALTERNATIVE)</div>
+      <div style="background: #111; border: 1px solid var(--border-subtle); padding: 10px 14px; position: relative;">
+        <div style="font-family: var(--font-retro); font-size: 14px; color: var(--accent-green);">
+          <span style="color: var(--text-dim);">></span> pip install homie-ai[all]
+        </div>
+        <button
+          class="copy-btn"
+          data-cmd="pip install homie-ai[all]"
+          style="position: absolute; top: 10px; right: 10px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 1px; border: 1px solid var(--text-ghost); padding: 2px 8px; background: none; cursor: pointer;"
+        >COPY</button>
+      </div>
+      <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint); margin-top: 6px;">Requires Python 3.11+</div>
     </div>
   </section>
 

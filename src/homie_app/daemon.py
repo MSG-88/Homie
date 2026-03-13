@@ -24,7 +24,7 @@ def _acquire_lock() -> bool:
             import psutil
             if psutil.pid_exists(old_pid):
                 proc = psutil.Process(old_pid)
-                if proc.is_running() and "python" in proc.name().lower():
+                if proc.is_running():
                     return False  # Another daemon is alive
         except Exception:
             pass  # Stale PID file or psutil unavailable

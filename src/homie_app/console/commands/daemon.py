@@ -25,7 +25,7 @@ def _is_running() -> tuple[bool, int | None]:
         pid = int(pid_file.read_text().strip())
         import psutil
         proc = psutil.Process(pid)
-        if proc.is_running() and "python" in proc.name().lower():
+        if proc.is_running():
             return True, pid
         # Stale
         pid_file.unlink(missing_ok=True)
