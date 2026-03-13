@@ -117,3 +117,56 @@ class TestConnectionsConfig:
         assert hasattr(cfg, "service")
         assert hasattr(cfg, "notifications")
         assert hasattr(cfg, "connections")
+
+
+class TestConfigBackwardsCompat:
+    def test_old_config_loads_without_new_sections(self, tmp_path, monkeypatch):
+        """Old config files without new sections should load with defaults."""
+        import yaml
+        # Isolate from any HF_KEY / HOMIE_* environment overrides
+        monkeypatch.delenv("HF_KEY", raising=False)
+        monkeypatch.delenv("HOMIE_LLM_BACKEND", raising=False)
+        monkeypatch.delenv("HOMIE_LLM_MODEL_PATH", raising=False)
+        old_config = {
+            "llm": {"backend": "gguf", "model_path": "/some/model.gguf"},
+            "voice": {"enabled": False},
+            "storage": {"path": str(tmp_path / "homie_storage")},
+            "privacy": {"data_retention_days": 30, "max_storage_mb": 512,
+                        "observers": {"work": True}},
+            "plugins": {"enabled": []},
+            "user_name": "TestUser",
+        }
+        config_file = tmp_path / "homie.config.yaml"
+        config_file.write_text(yaml.dump(old_config))
+
+        from homie_core.config import load_config
+        cfg = load_config(str(config_file))
+        # Old fields preserved
+        assert cfg.user_name == "TestUser"
+        assert cfg.llm.backend == "gguf"
+        # New fields get defaults
+        assert cfg.user.name == "Master"
+        assert cfg.screen_reader.enabled is False
+        assert cfg.service.mode == "on_demand"
+        assert cfg.notifications.enabled is True
+        assert cfg.connections.gmail.connected is False
+
+    def test_new_config_round_trips(self, tmp_path):
+        """Config with new sections saves and reloads correctly."""
+        import yaml
+        from homie_core.config import HomieConfig, load_config
+        cfg = HomieConfig()
+        cfg.user.name = "Muthu"
+        cfg.screen_reader.enabled = True
+        cfg.screen_reader.level = 2
+
+        config_file = tmp_path / "homie.config.yaml"
+        data = cfg.model_dump()
+        # Override storage path to tmp_path so load_config can create it
+        data["storage"]["path"] = str(tmp_path / "homie_storage")
+        config_file.write_text(yaml.dump(data, default_flow_style=False))
+
+        loaded = load_config(str(config_file))
+        assert loaded.user.name == "Muthu"
+        assert loaded.screen_reader.enabled is True
+        assert loaded.screen_reader.level == 2
