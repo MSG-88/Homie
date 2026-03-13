@@ -1,381 +1,203 @@
-"""Voice pipeline -- orchestrates wake-word detection, recording,
-transcription, response generation, and speech synthesis.
-
-The pipeline runs in its own daemon thread and cycles through states::
-
-    IDLE -> LISTENING -> RECORDING -> PROCESSING -> SPEAKING -> IDLE
-
-All voice dependencies are optional.  When a component cannot be created
-the pipeline falls back to text-only operation (or disables itself entirely
-when audio I/O is unavailable).
-"""
-
 from __future__ import annotations
-
 import enum
 import logging
+import queue
 import threading
 import time
-from typing import Callable, List, Optional
+from typing import Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Try importing voice components -- each may fail independently.
-# ---------------------------------------------------------------------------
-
-try:
-    from homie_core.voice.audio_io import AudioRecorder, AudioUnavailableError, RATE, CHUNK
-except ImportError:
-    AudioRecorder = None  # type: ignore[assignment,misc]
-    AudioUnavailableError = RuntimeError  # type: ignore[assignment,misc]
-    RATE = 16_000
-    CHUNK = 1024
-
-try:
-    from homie_core.voice.vad import VAD
-except ImportError:
-    VAD = None  # type: ignore[assignment,misc]
-
-try:
-    from homie_core.voice.wakeword import WakeWordDetector
-except ImportError:
-    WakeWordDetector = None  # type: ignore[assignment,misc]
-
-try:
-    from homie_core.voice.stt import SpeechToText
-except ImportError:
-    SpeechToText = None  # type: ignore[assignment,misc]
-
-try:
-    from homie_core.voice.tts import TextToSpeech
-except ImportError:
-    TextToSpeech = None  # type: ignore[assignment,misc]
-
-
-# ---------------------------------------------------------------------------
-# Pipeline states
-# ---------------------------------------------------------------------------
-
 class PipelineState(enum.Enum):
-    """Voice pipeline states."""
-
     IDLE = "idle"
     LISTENING = "listening"
     RECORDING = "recording"
     PROCESSING = "processing"
     SPEAKING = "speaking"
 
-
-# ---------------------------------------------------------------------------
-# Callback type
-# ---------------------------------------------------------------------------
-
-# on_query_cb(text) -> response_text
-QueryCallback = Callable[[str], str]
-
-
-# ---------------------------------------------------------------------------
-# Voice pipeline
-# ---------------------------------------------------------------------------
-
-# How many consecutive silent chunks signal end-of-speech.
-_SILENCE_CHUNKS_THRESHOLD = 30  # ~1.9 s at 16 kHz / 1024-frame chunks
-# Max recording length in chunks to prevent runaway recording.
-_MAX_RECORDING_CHUNKS = 500  # ~32 s
-
-
 class VoicePipeline:
-    """Orchestrates the full voice interaction loop.
-
-    Parameters
-    ----------
-    on_query : callable
-        ``(transcribed_text: str) -> response_text: str``
-        Called when the user finishes speaking.  Should return the text
-        response to be spoken back.
-    wake_phrase : str
-        Wake word / phrase to listen for (default ``"hey homie"``).
-    stt_model : str
-        Whisper model name (default ``"base"``).
-    """
+    _SILENCE_CHUNKS_THRESHOLD = 30
+    _MAX_RECORDING_CHUNKS = 500
+    _QUEUE_MAX_DEPTH = 50
 
     def __init__(
         self,
-        on_query: QueryCallback,
-        wake_phrase: str = "hey homie",
-        stt_model: str = "base",
+        on_query: Callable[[str], Iterator[str]] | None = None,
+        on_state_change: Callable[[PipelineState], None] | None = None,
+        on_response_complete: Callable[[], None] | None = None,
+        mode: str = "hybrid",
+        sample_rate: int = 16000,
+        chunk_size: int = 512,
     ) -> None:
         self._on_query = on_query
-        self._wake_phrase = wake_phrase
-        self._stt_model = stt_model
+        self._on_state_change = on_state_change
+        self._on_response_complete = on_response_complete
+        self._mode = mode
+        self._sample_rate = sample_rate
+        self._chunk_size = chunk_size
 
         self._state = PipelineState.IDLE
         self._state_lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._should_listen = threading.Event()
+        self._should_play = threading.Event()
+        self._should_play.set()
 
-        # Components -- initialised lazily in _init_components()
-        self._recorder: Optional[object] = None
-        self._vad: Optional[object] = None
-        self._wakeword: Optional[object] = None
-        self._stt: Optional[object] = None
-        self._tts: Optional[object] = None
+        self._vad_queue: queue.Queue = queue.Queue()
+        self._playback_queue: queue.Queue = queue.Queue()
 
-        # Track which components are available for graceful degradation
-        self._audio_ok = False
-        self._stt_ok = False
-        self._tts_ok = False
+        self.vad = None
+        self.stt = None
+        self.tts_selector = None
+        self.audio_in = None
+        self.audio_out = None
+        self.wake_word = None
 
-    # -- public API ---------------------------------------------------------
+        self._threads: list[threading.Thread] = []
+        self._recording_buffer: list[bytes] = []
+        self._silence_counter = 0
 
     @property
     def state(self) -> PipelineState:
-        with self._state_lock:
-            return self._state
-
-    @property
-    def is_running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
-
-    def start(self) -> bool:
-        """Start the pipeline thread.  Returns True if started successfully."""
-        if self.is_running:
-            logger.warning("VoicePipeline already running")
-            return True
-
-        if not self._init_components():
-            logger.error("VoicePipeline: no audio components available; not starting")
-            return False
-
-        self._stop_event.clear()
-        self._set_state(PipelineState.IDLE)
-        self._thread = threading.Thread(
-            target=self._run_loop,
-            name="voice-pipeline",
-            daemon=True,
-        )
-        self._thread.start()
-        logger.info("VoicePipeline started")
-        return True
-
-    def stop(self) -> None:
-        """Signal the pipeline to stop and wait for the thread to finish."""
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
-            self._thread = None
-        self._cleanup_components()
-        self._set_state(PipelineState.IDLE)
-        logger.info("VoicePipeline stopped")
-
-    # -- state management ---------------------------------------------------
+        return self._state
 
     def _set_state(self, new_state: PipelineState) -> None:
         with self._state_lock:
-            old = self._state
-            self._state = new_state
-        if old != new_state:
-            logger.debug("Pipeline state: %s -> %s", old.value, new_state.value)
+            if self._state != new_state:
+                logger.debug("Pipeline: %s -> %s", self._state.value, new_state.value)
+                self._state = new_state
+                if self._on_state_change:
+                    try:
+                        self._on_state_change(new_state)
+                    except Exception:
+                        logger.exception("State change callback failed")
 
-    # -- component initialisation -------------------------------------------
+    def start(self) -> None:
+        self._stop_event.clear()
+        if self.audio_in:
+            t = threading.Thread(target=self.audio_in.run, daemon=True, name="audio-in")
+            t.start()
+            self._threads.append(t)
+        if self.audio_out:
+            t = threading.Thread(target=self.audio_out.run, daemon=True, name="audio-out")
+            t.start()
+            self._threads.append(t)
 
-    def _init_components(self) -> bool:
-        """Try to create each voice component.  Returns True if at least
-        audio recording is available (minimum for the pipeline to run)."""
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._vad_queue.put(b"END")
+        self._playback_queue.put(b"END")
+        for t in self._threads:
+            t.join(timeout=3)
+        self._threads.clear()
+        self._set_state(PipelineState.IDLE)
 
-        # Audio recorder
-        if AudioRecorder is not None:
-            try:
-                self._recorder = AudioRecorder()
-                self._audio_ok = True
-            except Exception as exc:
-                logger.warning("AudioRecorder unavailable: %s", exc)
-                self._audio_ok = False
-        else:
-            self._audio_ok = False
-
-        if not self._audio_ok:
-            return False
-
-        # VAD
-        if VAD is not None:
-            try:
-                self._vad = VAD()
-            except Exception as exc:
-                logger.warning("VAD unavailable: %s", exc)
-
-        # Wake word
-        if WakeWordDetector is not None:
-            self._wakeword = WakeWordDetector(wake_phrase=self._wake_phrase)
-
-        # STT
-        if SpeechToText is not None:
-            try:
-                self._stt = SpeechToText(model_name=self._stt_model)
-                self._stt_ok = True
-            except Exception as exc:
-                logger.warning("STT unavailable: %s", exc)
-                self._stt_ok = False
-
-        # TTS
-        if TextToSpeech is not None:
-            try:
-                self._tts = TextToSpeech()
-                self._tts_ok = True
-            except Exception as exc:
-                logger.warning("TTS unavailable: %s", exc)
-                self._tts_ok = False
-
-        return True
-
-    def _cleanup_components(self) -> None:
-        if self._recorder is not None and hasattr(self._recorder, "close"):
-            try:
-                self._recorder.close()  # type: ignore[union-attr]
-            except Exception:
-                pass
-        self._recorder = None
-
-    # -- main loop ----------------------------------------------------------
-
-    def _run_loop(self) -> None:
-        """Main pipeline loop running on a background thread."""
-        try:
-            self._recorder.open()  # type: ignore[union-attr]
-        except Exception as exc:
-            logger.error("Failed to open audio recorder: %s", exc)
-            self._set_state(PipelineState.IDLE)
-            return
-
-        try:
-            while not self._stop_event.is_set():
-                try:
-                    self._tick()
-                except Exception as exc:
-                    logger.exception("Pipeline tick error: %s", exc)
-                    # Avoid tight error loops
-                    time.sleep(0.5)
-        finally:
-            self._cleanup_components()
-
-    def _tick(self) -> None:
-        """One iteration of the pipeline loop."""
-        state = self.state
-
-        if state == PipelineState.IDLE:
-            self._set_state(PipelineState.LISTENING)
-
-        elif state == PipelineState.LISTENING:
-            self._do_listen()
-
-        elif state == PipelineState.RECORDING:
-            # Recording is handled inside _do_listen -> _do_record
-            pass
-
-        elif state == PipelineState.PROCESSING:
-            # Processing is handled inline after recording
-            pass
-
-        elif state == PipelineState.SPEAKING:
-            # Speaking is handled inline after processing
-            pass
-
-    def _do_listen(self) -> None:
-        """Listen for wake word using short audio snippets."""
-        chunk = self._recorder.read_chunk()  # type: ignore[union-attr]
-
-        # If we have a VAD, only bother with chunks that contain speech
-        if self._vad is not None and not self._vad.is_speech(chunk):  # type: ignore[union-attr]
-            return
-
-        # If we have STT + wakeword detector, transcribe the chunk and check
-        if self._stt_ok and self._wakeword is not None:
-            try:
-                _result = self._stt.transcribe(chunk)  # type: ignore[union-attr]
-                snippet = _result[0] if isinstance(_result, tuple) else _result
-                if self._wakeword.check(snippet):  # type: ignore[union-attr]
-                    logger.info("Wake word detected -- starting recording")
-                    self._do_record_and_process()
-            except Exception as exc:
-                logger.debug("Wake word check failed: %s", exc)
-        else:
-            # Without STT we cannot detect wake words by transcription.
-            # Fall back to simple VAD-triggered recording (always record on speech).
-            if self._vad is not None:
-                self._do_record_and_process()
-
-    def _do_record_and_process(self) -> None:
-        """Record speech until silence, transcribe, process, and respond."""
-        self._set_state(PipelineState.RECORDING)
-
-        frames: List[bytes] = []
-        silence_count = 0
-
-        for _ in range(_MAX_RECORDING_CHUNKS):
-            if self._stop_event.is_set():
-                return
-
-            chunk = self._recorder.read_chunk()  # type: ignore[union-attr]
-            frames.append(chunk)
-
-            if self._vad is not None:
-                if self._vad.is_speech(chunk):  # type: ignore[union-attr]
-                    silence_count = 0
-                else:
-                    silence_count += 1
-                    if silence_count >= _SILENCE_CHUNKS_THRESHOLD:
-                        break
-            else:
-                # Without VAD record a fixed number of chunks (~5 s)
-                if len(frames) >= 80:
-                    break
-
-        pcm_audio = b"".join(frames)
-        logger.info("Recorded %d bytes of audio", len(pcm_audio))
-
-        # -- Transcribe -------------------------------------------------------
-        self._set_state(PipelineState.PROCESSING)
-        transcript = ""
-
-        if self._stt_ok:
-            try:
-                _result = self._stt.transcribe(pcm_audio)  # type: ignore[union-attr]
-                transcript = _result[0] if isinstance(_result, tuple) else _result
-            except Exception as exc:
-                logger.error("STT transcription failed: %s", exc)
-
-        if not transcript.strip():
-            logger.info("Empty transcription -- returning to listening")
-            self._set_state(PipelineState.LISTENING)
-            return
-
-        logger.info("User said: %r", transcript)
-
-        # -- Query callback (the brain) ----------------------------------------
-        response_text = ""
-        try:
-            response_text = self._on_query(transcript)
-        except Exception as exc:
-            logger.error("Query callback failed: %s", exc)
-            response_text = "Sorry, I encountered an error processing your request."
-
-        # -- Speak response -----------------------------------------------------
-        if response_text and self._tts_ok:
-            self._set_state(PipelineState.SPEAKING)
-            try:
-                self._tts.speak(response_text)  # type: ignore[union-attr]
-            except Exception as exc:
-                logger.error("TTS failed: %s", exc)
-        elif response_text:
-            logger.info("TTS unavailable; response text: %s", response_text)
-
+    def begin_listening(self) -> None:
+        self._should_listen.set()
         self._set_state(PipelineState.LISTENING)
+        self._recording_buffer.clear()
+        self._silence_counter = 0
+
+    def stop_listening(self) -> None:
+        self._should_listen.clear()
+        self._set_state(PipelineState.IDLE)
+
+    def barge_in(self) -> None:
+        self._should_play.clear()
+        while not self._playback_queue.empty():
+            try:
+                self._playback_queue.get_nowait()
+            except queue.Empty:
+                break
+        self._should_play.set()
+        logger.debug("Barge-in: TTS flushed")
+
+    def process_audio_chunk(self, chunk: bytes) -> None:
+        if not self.vad:
+            return
+        is_speech = self.vad.is_speech(chunk)
+
+        if self._state == PipelineState.LISTENING:
+            if is_speech:
+                self._set_state(PipelineState.RECORDING)
+                self._recording_buffer = [chunk]
+                self._silence_counter = 0
+        elif self._state == PipelineState.RECORDING:
+            self._recording_buffer.append(chunk)
+            if not is_speech:
+                self._silence_counter += 1
+            else:
+                self._silence_counter = 0
+            if (self._silence_counter >= self._SILENCE_CHUNKS_THRESHOLD
+                    or len(self._recording_buffer) >= self._MAX_RECORDING_CHUNKS):
+                self._process_recording()
+        elif self._state == PipelineState.SPEAKING:
+            if is_speech:
+                self.barge_in()
+                self._set_state(PipelineState.RECORDING)
+                self._recording_buffer = [chunk]
+                self._silence_counter = 0
+
+    def _process_recording(self) -> None:
+        self._set_state(PipelineState.PROCESSING)
+        audio_bytes = b"".join(self._recording_buffer)
+        self._recording_buffer.clear()
+        self._silence_counter = 0
+
+        if not self.stt or not self._on_query:
+            self._set_state(PipelineState.LISTENING)
+            return
+
+        text, lang = self.stt.transcribe_bytes(audio_bytes, self._sample_rate)
+        if not text.strip():
+            self._set_state(PipelineState.LISTENING)
+            return
+
+        logger.info("STT: '%s' (lang=%s)", text, lang)
+        self._set_state(PipelineState.SPEAKING)
+        self._should_play.set()
+
+        try:
+            sentence_buffer = []
+            for token in self._on_query(text):
+                sentence_buffer.append(token)
+                joined = "".join(sentence_buffer)
+                if any(joined.rstrip().endswith(p) for p in ".!?"):
+                    self._synthesize_and_queue(joined.strip(), lang)
+                    sentence_buffer.clear()
+            remaining = "".join(sentence_buffer).strip()
+            if remaining:
+                self._synthesize_and_queue(remaining, lang)
+        except Exception:
+            logger.exception("Brain query failed")
+
+        if self._on_response_complete:
+            self._on_response_complete()
+        if self._mode in ("conversational", "hybrid"):
+            self._set_state(PipelineState.LISTENING)
+        else:
+            self._set_state(PipelineState.IDLE)
+
+    def _synthesize_and_queue(self, text: str, lang: str) -> None:
+        if not self.tts_selector or not text:
+            return
+        try:
+            engine = self.tts_selector.select(text, detected_lang=lang)
+            for chunk in engine.synthesize_stream(text):
+                if self._stop_event.is_set() or not self._should_play.is_set():
+                    break
+                self._playback_queue.put(chunk)
+        except Exception:
+            logger.exception("TTS failed for: %s", text[:50])
+
+    @property
+    def is_running(self) -> bool:
+        return not self._stop_event.is_set()
 
 
 def is_available() -> bool:
     """Return True if the minimum deps for the voice pipeline exist."""
-    return AudioRecorder is not None
+    return True
 
 
 __all__ = ["VoicePipeline", "PipelineState", "is_available"]
