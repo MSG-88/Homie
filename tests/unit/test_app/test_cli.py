@@ -1,7 +1,7 @@
+"""Tests for the simplified CLI entry point."""
 from unittest.mock import MagicMock, patch
 
-from homie_core.config import HomieConfig
-from homie_app.cli import create_parser, main, _handle_meta_command
+from homie_app.cli import create_parser
 
 
 def test_parser_creation():
@@ -9,101 +9,45 @@ def test_parser_creation():
     assert parser is not None
 
 
-def test_parse_model_list():
+def test_parser_no_args():
     parser = create_parser()
-    args = parser.parse_args(["model", "list"])
-    assert args.command == "model"
-    assert args.model_command == "list"
+    args = parser.parse_args([])
+    assert args.command is None
 
 
-def test_parse_plugin_enable():
+def test_parser_start():
     parser = create_parser()
-    args = parser.parse_args(["plugin", "enable", "email"])
-    assert args.command == "plugin"
-    assert args.plugin_command == "enable"
-    assert args.name == "email"
+    args = parser.parse_args(["start"])
+    assert args.command == "start"
 
 
-def test_parse_backup():
+def test_parser_config_flag():
     parser = create_parser()
-    args = parser.parse_args(["backup", "--to", "/tmp/backup"])
-    assert args.command == "backup"
-    assert args.backup_path == "/tmp/backup"
+    args = parser.parse_args(["--config", "/path/to/config.yaml"])
+    assert args.config == "/path/to/config.yaml"
 
 
-def test_parse_chat():
+def test_parser_no_voice_flag():
     parser = create_parser()
-    args = parser.parse_args(["chat"])
-    assert args.command == "chat"
+    args = parser.parse_args(["--no-voice"])
+    assert args.no_voice is True
 
 
-def test_no_command_prints_help(capsys):
-    main([])
-    captured = capsys.readouterr()
-    assert "homie" in captured.out.lower() or "usage" in captured.out.lower()
+def test_parser_no_tray_flag():
+    parser = create_parser()
+    args = parser.parse_args(["--no-tray"])
+    assert args.no_tray is True
+
+
+def test_start_with_config():
+    parser = create_parser()
+    args = parser.parse_args(["start", "--config", "/tmp/config.yaml"])
+    assert args.command == "start"
+    assert args.start_config == "/tmp/config.yaml"
 
 
 # -----------------------------------------------------------------------
-# Meta-command tests
-# -----------------------------------------------------------------------
-
-class TestMetaCommands:
-    def setup_method(self):
-        from homie_core.memory.working import WorkingMemory
-        self.wm = WorkingMemory()
-        self.sm = MagicMock()
-        self.em = MagicMock()
-        self.brain = MagicMock()
-        self.brain._cognitive._learning.get_session_stats.return_value = {
-            "interactions": 5, "facts_learned": 2, "facts": ["User likes Python", "User is a dev"],
-        }
-        self.cfg = MagicMock()
-        self.cfg.user_name = "TestUser"
-
-    def test_help_command(self):
-        result = _handle_meta_command("/help", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert result is not None
-        assert "/status" in result
-        assert "/facts" in result
-
-    def test_status_command(self):
-        self.sm.get_facts.return_value = [{"fact": "test", "confidence": 0.8}]
-        result = _handle_meta_command("/status", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert "Homie Status" in result
-        assert "Facts stored: 1" in result
-
-    def test_remember_command(self):
-        self.sm.learn.return_value = 1
-        result = _handle_meta_command("/remember I prefer dark mode", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert "remember" in result.lower()
-        self.sm.learn.assert_called_once_with("I prefer dark mode", confidence=0.9, tags=["user_explicit"])
-
-    def test_forget_command(self):
-        result = _handle_meta_command("/forget work", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert "Forgotten" in result
-        self.sm.forget_topic.assert_called_once_with("work")
-
-    def test_facts_command(self):
-        self.sm.get_facts.return_value = [
-            {"fact": "User likes Python", "confidence": 0.9},
-            {"fact": "User prefers dark mode", "confidence": 0.8},
-        ]
-        result = _handle_meta_command("/facts", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert "Python" in result
-        assert "dark mode" in result
-
-    def test_learn_command(self):
-        result = _handle_meta_command("/learn", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert "Session Learning Stats" in result
-        assert "Interactions: 5" in result
-
-    def test_non_command_returns_none(self):
-        result = _handle_meta_command("hello", self.brain, self.wm, self.sm, self.em, self.cfg)
-        assert result is None
-
-
-# -----------------------------------------------------------------------
-# Dynamic system prompt tests
+# Dynamic system prompt tests (unchanged — these test prompts, not CLI)
 # -----------------------------------------------------------------------
 
 class TestDynamicSystemPrompt:
@@ -132,21 +76,3 @@ class TestDynamicSystemPrompt:
         from homie_app.prompts.system import SYSTEM_PROMPT
         assert "Homie" in SYSTEM_PROMPT
         assert len(SYSTEM_PROMPT) > 200
-
-
-# -----------------------------------------------------------------------
-# Stop and Status command tests
-# -----------------------------------------------------------------------
-
-class TestStopCommand:
-    def test_parser_has_stop(self):
-        parser = create_parser()
-        args = parser.parse_args(["stop"])
-        assert args.command == "stop"
-
-
-class TestStatusCommand:
-    def test_parser_has_status(self):
-        parser = create_parser()
-        args = parser.parse_args(["status"])
-        assert args.command == "status"

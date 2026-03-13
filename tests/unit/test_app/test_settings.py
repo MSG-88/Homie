@@ -1,15 +1,23 @@
-from unittest.mock import patch
-from homie_app.cli import create_parser
+"""Tests for /settings slash command."""
+from unittest.mock import MagicMock, patch
+from homie_app.console.router import SlashCommandRouter
+from homie_app.console.commands.settings import register
 
 
-class TestSettingsCommand:
-    def test_parser_has_settings(self):
-        parser = create_parser()
-        args = parser.parse_args(["settings"])
-        assert args.command == "settings"
+def test_settings_registered():
+    router = SlashCommandRouter()
+    register(router, {})
+    cmd = router._commands.get("settings")
+    assert cmd is not None
+    assert "settings" in cmd.name
 
-    def test_parser_connect_still_works(self):
-        """homie connect is deprecated but still parses."""
-        parser = create_parser()
-        args = parser.parse_args(["connect", "gmail"])
-        assert args.command == "connect"
+
+def test_settings_dispatches():
+    router = SlashCommandRouter()
+    register(router, {})
+    cfg = MagicMock()
+    cfg.user_name = "Tester"
+    # Settings menu is interactive (uses input()), so mock with "Back" option
+    with patch("builtins.input", return_value="10"):
+        result = router.dispatch("/settings", config=cfg, _router=router)
+    assert result is not None

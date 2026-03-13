@@ -89,6 +89,13 @@ class Console:
         from homie_app.cli import _init_intelligence_stack
         self._wm, self._em, self._sm, tool_registry, rag, plugin_mgr = _init_intelligence_stack(self._config)
 
+        # Register weather/news as Brain tools for conversational access
+        try:
+            from homie_core.brain.builtin_tools import register_intelligence_tools
+            register_intelligence_tools(tool_registry, config=self._config, vault=self._vault)
+        except Exception:
+            pass
+
         from homie_core.brain.orchestrator import BrainOrchestrator
         from homie_app.prompts.system import build_system_prompt
 

@@ -5,6 +5,16 @@ from homie_app.console.console import Console
 from homie_app.console.router import SlashCommand
 
 
+def _run_console_with_inputs(console, inputs):
+    """Run the console with a list of simulated user inputs.
+
+    Patches prompt_toolkit import to fail so console falls back to input().
+    """
+    with patch("builtins.input", side_effect=inputs):
+        with patch.dict("sys.modules", {"prompt_toolkit": None}):
+            console.run()
+
+
 def test_slash_command_routes_to_router(tmp_path):
     """Slash commands dispatch through the router, not the brain."""
     config = MagicMock()
@@ -17,10 +27,11 @@ def test_slash_command_routes_to_router(tmp_path):
     )
 
     with patch("builtins.input", side_effect=["/test", "quit"]):
-        with patch.object(console, "_print") as mock_print:
-            console.run()
-            printed = [str(c) for c in mock_print.call_args_list]
-            assert any("routed" in p for p in printed)
+        with patch.dict("sys.modules", {"prompt_toolkit": None}):
+            with patch.object(console, "_print") as mock_print:
+                console.run()
+                printed = [str(c) for c in mock_print.call_args_list]
+                assert any("routed" in p for p in printed)
 
 
 def test_quit_exits_loop(tmp_path):
@@ -30,8 +41,7 @@ def test_quit_exits_loop(tmp_path):
     config.user_name = "Tester"
 
     console = Console(config=config, skip_init=True)
-    with patch("builtins.input", side_effect=["quit"]):
-        console.run()  # Should not hang
+    _run_console_with_inputs(console, ["quit"])
 
 
 def test_empty_input_skipped(tmp_path):
@@ -41,8 +51,7 @@ def test_empty_input_skipped(tmp_path):
     config.user_name = "Tester"
 
     console = Console(config=config, skip_init=True)
-    with patch("builtins.input", side_effect=["", "quit"]):
-        console.run()  # Should not error
+    _run_console_with_inputs(console, ["", "quit"])
 
 
 def test_slash_quit_exits_loop(tmp_path):
@@ -52,8 +61,7 @@ def test_slash_quit_exits_loop(tmp_path):
     config.user_name = "Tester"
 
     console = Console(config=config, skip_init=True)
-    with patch("builtins.input", side_effect=["/quit"]):
-        console.run()  # Should not hang
+    _run_console_with_inputs(console, ["/quit"])
 
 
 def test_no_brain_shows_message(tmp_path):
@@ -64,7 +72,8 @@ def test_no_brain_shows_message(tmp_path):
 
     console = Console(config=config, skip_init=True)
     with patch("builtins.input", side_effect=["hello world", "quit"]):
-        with patch.object(console, "_print") as mock_print:
-            console.run()
-            printed = [str(c) for c in mock_print.call_args_list]
-            assert any("No model loaded" in p for p in printed)
+        with patch.dict("sys.modules", {"prompt_toolkit": None}):
+            with patch.object(console, "_print") as mock_print:
+                console.run()
+                printed = [str(c) for c in mock_print.call_args_list]
+                assert any("No model loaded" in p for p in printed)
