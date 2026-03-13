@@ -381,12 +381,25 @@ def create_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--no-voice", action="store_true", dest="start_no_voice")
     start_parser.add_argument("--no-tray", action="store_true", dest="start_no_tray")
 
+    daemon_parser = subparsers.add_parser("daemon", help="Run as background daemon")
+    daemon_parser.add_argument("--config", type=str, help="Path to config file", dest="daemon_config")
+    daemon_parser.add_argument("--headless", action="store_true", help="No console output, log to file")
+
     return parser
 
 
 def main(argv: list[str] | None = None):
     parser = create_parser()
     args = parser.parse_args(argv)
+
+    # Daemon mode — run background service
+    if getattr(args, "command", None) == "daemon":
+        from homie_app.daemon import run_daemon
+        run_daemon(
+            config_path=getattr(args, "daemon_config", None),
+            headless=getattr(args, "headless", False),
+        )
+        return
 
     config_path = getattr(args, "start_config", None) or getattr(args, "config", None)
     no_voice = getattr(args, "start_no_voice", False) or getattr(args, "no_voice", False)

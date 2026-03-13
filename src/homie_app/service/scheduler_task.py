@@ -1,3 +1,4 @@
+"""Windows Task Scheduler integration — registers Homie to start on login."""
 from __future__ import annotations
 import logging
 import subprocess
@@ -14,10 +15,11 @@ class ServiceManager:
         self._python = sys.executable
 
     def register(self) -> bool:
+        """Register Homie daemon to start on user login."""
         cmd = [
             "schtasks", "/create",
             "/tn", self._task_name,
-            "/tr", f'"{self._python}" -m homie_app.cli daemon --service',
+            "/tr", f'"{self._python}" -m homie_app.cli daemon --headless',
             "/sc", "onlogon",
             "/rl", "limited",
             "/f",
@@ -27,6 +29,16 @@ class ServiceManager:
     def unregister(self) -> bool:
         cmd = ["schtasks", "/delete", "/tn", self._task_name, "/f"]
         return self._run(cmd)
+
+    def is_registered(self) -> bool:
+        try:
+            result = subprocess.run(
+                ["schtasks", "/query", "/tn", self._task_name, "/fo", "list"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def status(self) -> str:
         try:

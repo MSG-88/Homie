@@ -34,6 +34,18 @@ def _handle_connect(args: str, **ctx) -> str:
         return _connect_social_oauth(provider, **ctx)
 
 
+def _get_gmail_profile(access_token: str) -> dict:
+    """Fetch Gmail profile using access token."""
+    import requests
+    resp = requests.get(
+        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _connect_gmail(**ctx) -> str:
     """Run Gmail OAuth flow inline in the console."""
     try:
@@ -75,8 +87,8 @@ def _connect_gmail(**ctx) -> str:
         if not code:
             return "Authorization timed out. Try again with /connect gmail"
 
-        tokens = oauth.exchange(code, client_id=client_id, client_secret=client_secret)
-        profile = oauth.get_profile(tokens["access_token"])
+        tokens = oauth.exchange(code)
+        profile = _get_gmail_profile(tokens["access_token"])
         email_addr = profile.get("emailAddress", "unknown")
 
         vault.store_credential(

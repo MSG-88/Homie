@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+try:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    _HAS_FASTAPI = True
+except ImportError:
+    FastAPI = None
+    JSONResponse = None
+    _HAS_FASTAPI = False
 
 
 def create_dashboard_app(
@@ -12,7 +18,12 @@ def create_dashboard_app(
     belief_system=None,
     plugin_manager=None,
     suggestion_engine=None,
-) -> FastAPI:
+):
+    if not _HAS_FASTAPI:
+        raise ImportError(
+            "fastapi is required for the dashboard. "
+            "Install with: pip install homie-ai[app]"
+        )
     app = FastAPI(title="Homie AI Dashboard", version="0.1.0")
 
     @app.get("/api/health")

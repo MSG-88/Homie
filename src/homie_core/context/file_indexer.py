@@ -5,8 +5,16 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent
+    _HAS_WATCHDOG = True
+except ImportError:
+    Observer = None
+    FileSystemEventHandler = object
+    FileModifiedEvent = None
+    FileCreatedEvent = None
+    _HAS_WATCHDOG = False
 
 
 class FileChangeHandler(FileSystemEventHandler):
@@ -35,6 +43,11 @@ class FileIndexer:
         self._lock = threading.Lock()
 
     def watch(self, directories: list[str | Path]) -> None:
+        if not _HAS_WATCHDOG:
+            raise ImportError(
+                "watchdog is required for file watching. "
+                "Install with: pip install homie-ai[context]"
+            )
         self._observer = Observer()
         handler = FileChangeHandler(self)
         for d in directories:

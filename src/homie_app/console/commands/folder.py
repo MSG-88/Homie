@@ -16,19 +16,40 @@ def _get_folder_service(ctx):
     return FolderService(cache_conn=cache_conn), None
 
 
+def _parse_folder_args(args: str) -> tuple[str, dict[str, str]]:
+    """Parse a path (possibly quoted) and --flag values from args.
+
+    Returns (path_string, {flag: value}).
+    """
+    import shlex
+    try:
+        tokens = shlex.split(args, posix=False)
+        # shlex with posix=False keeps quotes; strip them
+        tokens = [t.strip("'\"") for t in tokens]
+    except ValueError:
+        tokens = args.strip().split()
+
+    path_parts: list[str] = []
+    flags: dict[str, str] = {}
+    i = 0
+    while i < len(tokens):
+        if tokens[i].startswith("--") and i + 1 < len(tokens):
+            flags[tokens[i][2:]] = tokens[i + 1]
+            i += 2
+        else:
+            path_parts.append(tokens[i])
+            i += 1
+    return " ".join(path_parts).strip("'\""), flags
+
+
 def _handle_folder_watch(args: str, **ctx) -> str:
-    parts = args.strip().split()
-    if not parts:
+    if not args.strip():
         return "Usage: /folder watch <path> [--label <label>] [--interval <seconds>]"
     try:
         from pathlib import Path
-        path_str = parts[0]
-        label = None
-        interval = 300
-        if "--label" in parts:
-            label = parts[parts.index("--label") + 1]
-        if "--interval" in parts:
-            interval = int(parts[parts.index("--interval") + 1])
+        path_str, flags = _parse_folder_args(args)
+        label = flags.get("label")
+        interval = int(flags.get("interval", "300"))
 
         target = Path(path_str).resolve()
         if not target.is_dir():
@@ -72,7 +93,7 @@ def _handle_folder_scan(args: str, **ctx) -> str:
 
 
 def _handle_folder_unwatch(args: str, **ctx) -> str:
-    path_str = args.strip()
+    path_str = args.strip().strip("'\"")
     if not path_str:
         return "Usage: /folder unwatch <path>"
     try:

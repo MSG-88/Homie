@@ -185,6 +185,12 @@ class Console:
                 result = self._router.dispatch(user_input, **ctx)
                 if result:
                     self._print(f"Homie> {result}\n")
+                    # Record slash command interactions in working memory
+                    # so sessions with only commands are still saved
+                    if self._wm:
+                        self._wm.add_message("user", user_input)
+                        # Truncate long command output for memory storage
+                        self._wm.add_message("assistant", result[:500])
                 continue
 
             if not self._brain:

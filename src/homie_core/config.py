@@ -132,9 +132,11 @@ class NotificationConfig(BaseModel):
     categories: dict[str, bool] = Field(default_factory=lambda: {
         "task_reminders": True,
         "email_digest": True,
+        "email_priority": True,
         "social_mentions": True,
         "context_suggestions": True,
         "system_alerts": True,
+        "proactive": True,
     })
     dnd_schedule_enabled: bool = False
     dnd_schedule_start: str = "22:00"

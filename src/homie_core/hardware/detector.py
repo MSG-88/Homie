@@ -65,4 +65,22 @@ def _detect_microphone() -> bool:
         devices = sd.query_devices()
         return any(d.get("max_input_channels", 0) > 0 for d in devices)
     except Exception:
-        return False
+        pass
+
+    # Windows fallback: query PnP audio endpoints via PowerShell
+    import sys
+    if sys.platform == "win32":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["powershell", "-Command",
+                 "Get-PnpDevice -Class AudioEndpoint -Status OK"],
+                capture_output=True, text=True, timeout=10,
+            )
+            for line in result.stdout.splitlines():
+                if "microphone" in line.lower():
+                    return True
+        except Exception:
+            pass
+
+    return False

@@ -10,6 +10,98 @@ from typing import Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
+# ── Lock file management ──────────────────────────────────────────────────
+_PID_FILE = Path.home() / ".homie" / "daemon.pid"
+_LOG_FILE = Path.home() / ".homie" / "daemon.log"
+
+
+def _acquire_lock() -> bool:
+    """Write PID to lock file. Returns False if another daemon is running."""
+    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if _PID_FILE.exists():
+        try:
+            old_pid = int(_PID_FILE.read_text().strip())
+            import psutil
+            if psutil.pid_exists(old_pid):
+                proc = psutil.Process(old_pid)
+                if proc.is_running() and "python" in proc.name().lower():
+                    return False  # Another daemon is alive
+        except Exception:
+            pass  # Stale PID file or psutil unavailable
+    _PID_FILE.write_text(str(os.getpid()))
+    return True
+
+
+def _release_lock() -> None:
+    """Remove the PID lock file."""
+    try:
+        if _PID_FILE.exists():
+            stored = int(_PID_FILE.read_text().strip())
+            if stored == os.getpid():
+                _PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _setup_daemon_logging() -> None:
+    """Redirect logging to daemon.log when running headless."""
+    _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+def run_daemon(config_path: str | None = None, headless: bool = False) -> None:
+    """Entry point for starting the daemon with auto-restart on crash.
+
+    Args:
+        config_path: Optional path to config file.
+        headless: If True, suppress stdout and log to file instead.
+    """
+    if headless:
+        _setup_daemon_logging()
+        # Redirect stdout/stderr to log file
+        log_fh = open(str(_LOG_FILE), "a", encoding="utf-8")
+        sys.stdout = log_fh
+        sys.stderr = log_fh
+
+    if not _acquire_lock():
+        print("Homie daemon is already running. Use '/daemon stop' first.")
+        return
+
+    max_restarts = 5
+    restart_count = 0
+    backoff = 5  # seconds
+
+    try:
+        while restart_count < max_restarts:
+            try:
+                daemon = HomieDaemon(config_path=config_path)
+                daemon.start()
+                break  # Clean exit
+            except SystemExit:
+                break  # Intentional stop
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                restart_count += 1
+                logger.error("Daemon crashed (%d/%d): %s", restart_count, max_restarts, e, exc_info=True)
+                print(f"\n[!] Homie crashed: {e}")
+                if restart_count < max_restarts:
+                    wait = backoff * restart_count
+                    print(f"    Restarting in {wait}s... (attempt {restart_count + 1}/{max_restarts})")
+                    time.sleep(wait)
+                else:
+                    print(f"    Max restarts ({max_restarts}) reached. Stopping.")
+    finally:
+        _release_lock()
+
+
 from homie_core.config import HomieConfig, load_config
 from homie_core.enterprise import load_enterprise_policy, apply_policy
 from homie_core.voice.voice_manager import VoiceManager
@@ -162,6 +254,7 @@ class HomieDaemon:
                 self._email_service = EmailService(
                     vault=self._vault, cache_conn=cache_conn,
                     working_memory=self._working_memory,
+                    model_engine=getattr(self, '_engine', None),
                 )
                 accounts = self._email_service.initialize()
                 if accounts:
@@ -644,13 +737,53 @@ class HomieDaemon:
             pass
         return current_entry
 
+    def _deliver_notification(self, title: str, body: str, category: str = "system_alerts") -> None:
+        """Route a notification through the router and show a toast if approved."""
+        if not self._notification_router or not self._toast_notifier:
+            return
+        from homie_core.notifications.router import Notification
+        n = Notification(category=category, title=title, body=body)
+        if self._notification_router.route(n):
+            try:
+                self._toast_notifier.show(title, body)
+            except Exception:
+                logger.debug("Toast delivery failed", exc_info=True)
+
+    def _flush_pending_notifications(self) -> None:
+        """Deliver any notifications that were queued during DND."""
+        if not self._notification_router or not self._toast_notifier:
+            return
+        pending = self._notification_router.flush_pending()
+        for n in pending[:10]:  # Cap burst
+            try:
+                self._toast_notifier.show(n.title, n.body)
+            except Exception:
+                pass
+
     def start(self) -> None:
         self._running = True
         print("Homie daemon starting...")
 
+        # Start system tray icon
+        self._tray = None
+        try:
+            from homie_app.tray.app import TrayApp
+            self._tray = TrayApp(
+                on_quit=self.stop,
+                on_toggle_voice=self._toggle_voice,
+                on_open_dashboard=self._on_hotkey,
+            )
+            self._tray.start()
+            print("  Tray icon: active")
+        except Exception as e:
+            print(f"  Tray icon: not available ({e})")
+
         # Show morning briefing if there's a previous session
         briefing = self._briefing.morning_briefing()
         print(f"\n{briefing}\n")
+
+        # Toast the morning briefing
+        self._deliver_notification("Good morning!", briefing[:200], "system_alerts")
 
         # Start observer thread (with neural components if available)
         self._observer.start()
@@ -675,75 +808,288 @@ class HomieDaemon:
         if pending:
             print(f"  Scheduler: {len(pending)} jobs registered")
 
+        # Check token expiry for all providers
+        if self._notification_router:
+            for provider in ("gmail", "slack"):
+                _check_token_expiry(self._vault, self._notification_router, provider)
+
         print("\nHomie is running in the background. Press Alt+8 or say 'hey homie' to activate.")
         print("Press Ctrl+C to stop.\n")
 
-        # Main thread waits — ticks scheduler every 60s
+        self._deliver_notification("Homie AI", "Running in the background. Press Alt+8 to activate.", "system_alerts")
+
+        # Main thread waits — ticks at different intervals:
+        #   Every 60s:  scheduler + sync + notifications
+        #   Every 300s: deep intel gathering (email analysis, context understanding)
         try:
             signal.signal(signal.SIGINT, lambda *_: self.stop())
+            signal.signal(signal.SIGTERM, lambda *_: self.stop())
             tick_counter = 0
+            intel_counter = 0
             while self._running:
                 time.sleep(1)
                 tick_counter += 1
+                intel_counter += 1
+
                 if tick_counter >= 60:
                     tick_counter = 0
+                    # Scheduler tick
                     try:
                         results = self._scheduler.tick()
                         for job, output in results:
-                            print(f"  [Scheduler] {job.name}: {output[:100]}")
+                            logger.info("[Scheduler] %s: %s", job.name, output[:100])
                     except Exception:
                         pass
+                    # Sync tick (email, folders, slack, etc.)
                     try:
                         if self._vault_sync:
                             sync_results = self._vault_sync.tick()
                             for provider, output in sync_results:
-                                print(f"  [Sync] {provider}: {output[:100]}")
+                                logger.info("[Sync] %s: %s", provider, output[:100])
+                                # Notify on new high-priority emails
+                                if provider == "gmail" and "new" in output:
+                                    self._notify_email_updates(output)
                     except Exception:
                         pass
+                    # Flush DND-queued notifications
+                    self._flush_pending_notifications()
+                    # Check proactive suggestions
+                    self._check_proactive_suggestions()
+
+                # Intel gathering: deep analysis every 5 minutes
+                if intel_counter >= 300:
+                    intel_counter = 0
+                    self._intel_tick()
         except KeyboardInterrupt:
             self.stop()
 
+    def _intel_tick(self) -> None:
+        """Periodic deep intelligence gathering — analyze emails, detect
+        action items, understand context, and proactively assist the user."""
+        logger.info("[Intel] Running intel cycle...")
+
+        # 1. Email intelligence: triage unread, detect urgent items
+        if self._email_service:
+            try:
+                self._email_intel()
+            except Exception as e:
+                logger.debug("[Intel] Email intel failed: %s", e)
+
+        # 2. Store intel summary in working memory for brain context
+        try:
+            self._update_intel_context()
+        except Exception:
+            pass
+
+    def _email_intel(self) -> None:
+        """Analyze unread emails using LLM — understand context, detect
+        deadlines, create draft responses for urgent items, and notify."""
+        triage = self._email_service.triage(max_emails=10)
+
+        if not isinstance(triage, dict):
+            return
+
+        # Handle emails that need action
+        action_items = triage.get("action_needed", [])
+        deep_insights = []
+
+        for item in action_items:
+            sender = item.get("sender", "Unknown")
+            subject = item.get("subject", "(no subject)")
+            intent = item.get("intent", "")
+            priority = item.get("llm_priority", item.get("priority", "medium"))
+            msg_id = item.get("id", "")
+
+            # Deep-analyze urgent emails — understand deadlines, draft replies
+            if priority in ("high", "medium") and msg_id:
+                try:
+                    deep = self._email_service.deep_analyze_email(msg_id)
+                    if isinstance(deep, dict) and deep.get("urgency") != "no_action":
+                        deep_insights.append(deep)
+
+                        # Create draft reply for emails that need one
+                        if deep.get("suggested_response") and deep.get("urgency") in ("immediate", "today"):
+                            try:
+                                self._email_service.create_draft(
+                                    to=sender,
+                                    subject=f"Re: {subject}",
+                                    body=deep["suggested_response"],
+                                    reply_to=msg_id,
+                                )
+                                logger.info("[Intel] Draft reply created for: %s", subject[:60])
+                            except Exception:
+                                pass
+
+                        # Build rich notification
+                        urgency_label = {"immediate": "URGENT", "today": "Today", "this_week": "This week"}.get(deep.get("urgency", ""), "")
+                        action_detail = deep.get("action_detail", intent)
+                        body = f"[{urgency_label}] {action_detail}"
+                        if deep.get("deadline"):
+                            body += f"\nDeadline: {deep['deadline']}"
+                        self._deliver_notification(
+                            f"Action: {sender}",
+                            body[:250],
+                            "email_priority",
+                        )
+                        continue
+                except Exception:
+                    pass
+
+            # Fallback notification for items without deep analysis
+            if priority in ("high", "medium"):
+                body = subject
+                if intent:
+                    body += f"\n{intent}"
+                self._deliver_notification(
+                    f"Action needed: {sender}",
+                    body[:250],
+                    "email_priority",
+                )
+
+        # Store action items + deep insights in working memory
+        self._working_memory.update("email_action_items", [
+            {"sender": i.get("sender", ""), "subject": i.get("subject", ""),
+             "intent": i.get("intent", ""), "priority": i.get("llm_priority", "medium")}
+            for i in action_items[:5]
+        ])
+        if deep_insights:
+            self._working_memory.update("email_deep_insights", [
+                {"sender": d.get("sender", ""), "subject": d.get("subject", ""),
+                 "urgency": d.get("urgency", ""), "action": d.get("action_detail", ""),
+                 "deadline": d.get("deadline"), "context": d.get("context", "")}
+                for d in deep_insights[:5]
+            ])
+
+        # Handle likely spam — auto-archive if high confidence
+        spam = triage.get("likely_spam", [])
+        for item in spam:
+            spam_score = item.get("llm_spam", item.get("spam_score", 0))
+            if spam_score > 0.85:
+                try:
+                    self._email_service.archive_message(item["id"])
+                    logger.info("[Intel] Auto-archived spam: %s", item.get("subject", ""))
+                except Exception:
+                    pass
+
+        # Log summary
+        total = len(triage.get("all", triage.get("emails", [])))
+        n_action = len(action_items)
+        n_spam = len(spam)
+        n_deep = len(deep_insights)
+        if total > 0:
+            logger.info("[Intel] Email: %d emails, %d action items (%d deep-analyzed), %d spam",
+                        total, n_action, n_deep, n_spam)
+
+    def _update_intel_context(self) -> None:
+        """Update working memory with a consolidated intel snapshot so the
+        brain has context about the user's current situation."""
+        intel = {}
+
+        # Email context
+        action_items = self._working_memory.get("email_action_items")
+        if action_items:
+            intel["pending_email_actions"] = len(action_items)
+            intel["top_email_action"] = action_items[0] if action_items else None
+
+        # Folder changes
+        if self._folder_service:
+            try:
+                watches = self._folder_service.list_watches()
+                total_files = sum(w.get("file_count", 0) for w in watches)
+                intel["watched_folders"] = len(watches)
+                intel["watched_files"] = total_files
+            except Exception:
+                pass
+
+        if intel:
+            self._working_memory.update("intel_snapshot", intel)
+
+    def _toggle_voice(self, enabled: bool = False) -> None:
+        """Toggle voice on/off from tray."""
+        if self._voice_manager:
+            if enabled:
+                self._voice_manager.start()
+            else:
+                self._voice_manager.stop()
+
+    def _notify_email_updates(self, sync_output: str) -> None:
+        """Parse sync output and toast high-priority email alerts."""
+        # Check working memory for email alerts set by SyncEngine
+        alert = self._working_memory.get("email_alert")
+        if alert and alert.get("priority") == "high":
+            sender = alert.get("sender", "Unknown")
+            subject = alert.get("subject", "(no subject)")
+            self._deliver_notification(
+                f"Email from {sender}",
+                subject[:200],
+                "email_priority",
+            )
+
+    def _check_proactive_suggestions(self) -> None:
+        """Check if ProactiveEngine has staged suggestions and toast them."""
+        staged = self._working_memory.get("staged_suggestions")
+        if not staged:
+            return
+        for suggestion in (staged if isinstance(staged, list) else [staged])[:2]:
+            text = suggestion if isinstance(suggestion, str) else suggestion.get("text", "")
+            if text:
+                self._deliver_notification("Homie Suggestion", text[:200], "proactive")
+
     def stop(self) -> None:
+        if not self._running:
+            return  # Already stopping
         print("\nHomie daemon stopping...")
         self._running = False
+
         if self._voice_manager:
             self._voice_manager.stop()
 
         # Save session for tomorrow
-        apps = self._observer.get_app_tracker().get_usage()
-        switch_count = self._observer.get_app_tracker().get_switch_count(minutes=1440)
-
-        digest = self._briefing.end_of_day_digest(
-            self._task_graph, apps_used=apps, switch_count=switch_count,
-        )
-        print(f"\n{digest}")
+        try:
+            apps = self._observer.get_app_tracker().get_usage()
+            switch_count = self._observer.get_app_tracker().get_switch_count(minutes=1440)
+            digest = self._briefing.end_of_day_digest(
+                self._task_graph, apps_used=apps, switch_count=switch_count,
+            )
+            print(f"\n{digest}")
+        except Exception:
+            pass
 
         # Consolidate session into episodic memory
         if self._brain:
-            summary = self._brain.consolidate_session()
-            if summary:
-                print(f"  Session saved: {summary}")
+            try:
+                summary = self._brain.consolidate_session()
+                if summary:
+                    print(f"  Session saved: {summary}")
+            except Exception:
+                pass
 
         # Close services
-        if self._email_service:
-            self._email_service = None
-        if self._financial_service:
-            self._financial_service = None
-        if self._folder_service:
-            self._folder_service = None
-        if self._social_service:
-            self._social_service = None
+        self._email_service = None
+        self._financial_service = None
+        self._folder_service = None
+        self._social_service = None
 
         # Lock vault and stop sync
         self._vault_sync = None
-        self._vault.lock()
+        try:
+            self._vault.lock()
+        except Exception:
+            pass
 
         self._observer.stop()
         self._hotkey.stop()
         self._overlay.hide()
 
+        # Stop tray icon
+        if self._tray:
+            try:
+                self._tray.stop()
+            except Exception:
+                pass
+
         if self._engine:
             self._engine.unload()
 
+        _release_lock()
         print("Goodbye!")
-        sys.exit(0)

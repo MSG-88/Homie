@@ -172,3 +172,88 @@ def register_email_tools(registry: ToolRegistry, email_service) -> None:
         execute=tool_email_mark_read,
         category="email",
     ))
+
+    # ── LLM-powered email intelligence tools ─────────────────────────────
+
+    def tool_email_analyze(message_id: str) -> str:
+        """Deep-analyze a single email using the local LLM."""
+        result = email_service.analyze_email(message_id)
+        return _truncate(json.dumps(result))
+
+    registry.register(Tool(
+        name="email_analyze",
+        description=(
+            "Deep-analyze a single email using AI: spam detection, intent analysis, "
+            "action detection, and content summary. Returns structured analysis."
+        ),
+        params=[
+            ToolParam(name="message_id", description="Email message ID to analyze", type="string"),
+        ],
+        execute=tool_email_analyze,
+        category="email",
+    ))
+
+    def tool_email_deep_analyze(message_id: str) -> str:
+        """Deep contextual analysis — deadlines, actions, impact, draft reply."""
+        result = email_service.deep_analyze_email(message_id)
+        return _truncate(json.dumps(result))
+
+    registry.register(Tool(
+        name="email_deep_analyze",
+        description=(
+            "Deep contextual email analysis: extracts deadlines, required actions, "
+            "business/personal impact, and drafts a suggested response. "
+            "Use when the user asks 'what should I do about this email' or similar."
+        ),
+        params=[
+            ToolParam(name="message_id", description="Email message ID", type="string"),
+        ],
+        execute=tool_email_deep_analyze,
+        category="email",
+    ))
+
+    def tool_email_triage(account: str = "all", max_emails: str = "15") -> str:
+        """Batch-triage unread emails using the local LLM."""
+        try:
+            limit = int(max_emails)
+        except (ValueError, TypeError):
+            limit = 15
+        result = email_service.triage(account=account, max_emails=limit)
+        return _truncate(json.dumps(result))
+
+    registry.register(Tool(
+        name="email_triage",
+        description=(
+            "Batch-triage unread emails using AI. Analyzes up to 15 emails at once, "
+            "classifying spam vs important, detecting action items, and summarizing content. "
+            "Returns structured triage results for each email."
+        ),
+        params=[
+            ToolParam(name="account", description="Account email or 'all'", type="string", required=False, default="all"),
+            ToolParam(name="max_emails", description="Max emails to triage (up to 15)", type="string", required=False, default="15"),
+        ],
+        execute=tool_email_triage,
+        category="email",
+    ))
+
+    def tool_email_digest(days: str = "1") -> str:
+        """Generate an intelligent email digest using the local LLM."""
+        try:
+            num_days = int(days)
+        except (ValueError, TypeError):
+            num_days = 1
+        result = email_service.get_intelligent_digest(days=num_days)
+        return result if isinstance(result, str) else json.dumps(result)
+
+    registry.register(Tool(
+        name="email_digest",
+        description=(
+            "Generate a natural-language email digest using AI. Summarizes recent emails "
+            "into action items, important updates, and noise count. Much richer than email_summary."
+        ),
+        params=[
+            ToolParam(name="days", description="Number of days to cover", type="string", required=False, default="1"),
+        ],
+        execute=tool_email_digest,
+        category="email",
+    ))

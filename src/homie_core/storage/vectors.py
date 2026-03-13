@@ -3,18 +3,29 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import chromadb
-from chromadb.config import Settings
+try:
+    import chromadb
+    from chromadb.config import Settings
+    _HAS_CHROMADB = True
+except ImportError:
+    chromadb = None
+    Settings = None
+    _HAS_CHROMADB = False
 
 
 class VectorStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
-        self._client: chromadb.ClientAPI | None = None
-        self._episodes: chromadb.Collection | None = None
-        self._files: chromadb.Collection | None = None
+        self._client = None
+        self._episodes = None
+        self._files = None
 
     def initialize(self) -> None:
+        if not _HAS_CHROMADB:
+            raise ImportError(
+                "chromadb is required for vector storage. "
+                "Install with: pip install homie-ai[storage]"
+            )
         self.path.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(
             path=str(self.path),

@@ -14,6 +14,7 @@ const modules = [
   { name: 'Voice', color: 'var(--accent-gold)', cmd: 'pip install homie-ai[voice]', size: '~2 GB' },
   { name: 'Email', color: 'var(--accent-green)', cmd: 'pip install homie-ai[email]', size: '~5 MB' },
   { name: 'Neural', color: 'var(--accent-blue)', cmd: 'pip install homie-ai[neural]', size: '~50 MB' },
+  { name: 'Service', color: 'var(--accent-red)', cmd: 'pip install homie-ai[service]', size: '~2 MB' },
 ];
 ---
 
@@ -23,27 +24,94 @@ const modules = [
   activePage="download"
 >
   <section class="pt-12 pb-8 px-6 text-center">
-    <p class="status-line">■ DEPLOYMENT READY</p>
+    <p class="status-line">■ DEPLOYMENT READY — v0.2.0</p>
     <h1 class="page-title">SUIT UP</h1>
     <p class="page-subtitle">SELECT YOUR PLATFORM • INSTALL • LAUNCH</p>
   </section>
 
   <div class="hud-divider"></div>
 
+  <!-- Windows CLI Installer -->
+  <section class="py-10 px-6 text-center max-w-2xl mx-auto" id="windows-installer">
+    <p class="section-label" style="color: var(--accent-gold);">WINDOWS QUICK INSTALL</p>
+    <div style="border: 2px solid var(--border-gold); padding: 24px; background: var(--bg-card);">
+      <div style="font-size: 32px; margin-bottom: 12px;">⊞</div>
+      <div style="font-family: var(--font-pixel); font-size: 12px; color: var(--accent-gold); letter-spacing: 3px; margin-bottom: 8px;">WINDOWS 10/11</div>
+      <p style="font-family: var(--font-retro); font-size: 15px; color: var(--text-body); margin-bottom: 16px; line-height: 1.6;">
+        One-line install. Includes CLI, background service, system tray, and toast notifications.
+      </p>
+      <div style="background: #111; border: 1px solid var(--border-gold); padding: 14px 18px; text-align: left; position: relative; margin-bottom: 12px;">
+        <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 8px;">POWERSHELL (ADMIN)</div>
+        <div style="font-family: var(--font-retro); font-size: 16px; color: var(--accent-green);">
+          <span style="color: var(--text-dim);">></span> pip install homie-ai[all]
+        </div>
+        <button
+          class="copy-btn"
+          data-cmd="pip install homie-ai[all]"
+          style="position: absolute; top: 14px; right: 14px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 1px; border: 1px solid var(--text-ghost); padding: 2px 8px; background: none; cursor: pointer;"
+        >COPY</button>
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+        <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); border: 1px solid var(--border-subtle); padding: 4px 10px;">CLI Console</div>
+        <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); border: 1px solid var(--border-subtle); padding: 4px 10px;">Background Daemon</div>
+        <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); border: 1px solid var(--border-subtle); padding: 4px 10px;">System Tray</div>
+        <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); border: 1px solid var(--border-subtle); padding: 4px 10px;">Toast Alerts</div>
+      </div>
+    </div>
+
+    <!-- Post-install steps -->
+    <div style="border: 1px solid var(--border-subtle); padding: 18px; margin-top: 12px; text-align: left;">
+      <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 10px;">AFTER INSTALL</div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">1</span>
+          <div>
+            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
+              <span style="color: var(--text-dim);">></span> <span style="color: var(--accent-green);">homie</span>
+            </div>
+            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Run setup wizard — picks the best model for your hardware</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">2</span>
+          <div>
+            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
+              <span style="color: var(--text-dim);">></span> <span style="color: var(--accent-green);">homie daemon --headless</span>
+            </div>
+            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Start background service — tray icon, email intel, toast notifications</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">3</span>
+          <div>
+            <div style="font-family: var(--font-retro); font-size: 14px; color: var(--text-body);">
+              <span style="color: var(--text-dim);">/</span><span style="color: var(--accent-green);">daemon install</span>
+            </div>
+            <div style="font-family: var(--font-retro); font-size: 12px; color: var(--text-faint);">Auto-start on login — runs silently via Windows Task Scheduler</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hud-divider"></div>
+
+  <!-- pip install (cross-platform) -->
   <section class="py-10 px-6 text-center max-w-2xl mx-auto">
-    <p class="section-label" style="color: var(--accent-gold);">QUICK DEPLOY</p>
-    <div style="background: #111; border: 1px solid var(--border-gold); padding: 16px 20px; text-align: left; position: relative;">
+    <p class="section-label" style="color: var(--accent-green);">CROSS-PLATFORM (PIP)</p>
+    <div style="background: #111; border: 1px solid var(--border-subtle); padding: 16px 20px; text-align: left; position: relative;">
       <div style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 2px; margin-bottom: 8px;">TERMINAL</div>
       <div style="font-family: var(--font-retro); font-size: 18px; color: var(--accent-green);">
         <span style="color: var(--text-dim);">$</span> pip install homie-ai
       </div>
       <button
-        id="copy-btn"
+        class="copy-btn"
+        data-cmd="pip install homie-ai"
         style="position: absolute; top: 16px; right: 16px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 1px; border: 1px solid var(--text-ghost); padding: 2px 8px; background: none; cursor: pointer;"
       >COPY</button>
     </div>
     <p style="font-family: var(--font-retro); font-size: 14px; color: var(--text-faint); margin-top: 10px; letter-spacing: 1px;">
-      Works on all platforms. Requires Python 3.11+
+      Core CLI — works on Windows, Linux, and macOS. Python 3.11+
     </p>
   </section>
 
@@ -52,23 +120,61 @@ const modules = [
   <section class="py-10 px-6 max-w-2xl mx-auto">
     <p class="section-label" style="color: var(--accent-blue);">PLATFORM SELECT</p>
     <div class="grid grid-cols-3 gap-3">
-      <div id="platform-windows" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center;">
+      <div id="platform-windows" class="platform-card" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center; cursor: pointer;" data-platform="windows">
         <div style="font-size: 22px; margin-bottom: 8px;">⊞</div>
         <div class="platform-name" style="font-family: var(--font-retro); font-size: 15px; color: var(--text-muted); letter-spacing: 2px;">WINDOWS</div>
         <div class="platform-detect" style="font-family: var(--font-pixel); font-size: 8px; color: var(--accent-green); margin-top: 6px; letter-spacing: 1px; visibility: hidden;">DETECTED ✓</div>
         <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-top: 8px;">Win 10/11</div>
+        <div style="font-family: var(--font-pixel); font-size: 7px; color: var(--accent-gold); margin-top: 6px; letter-spacing: 1px;">DAEMON + TRAY</div>
       </div>
-      <div id="platform-linux" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center;">
+      <div id="platform-linux" class="platform-card" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center; cursor: pointer;" data-platform="linux">
         <div style="font-size: 22px; margin-bottom: 8px;">🐧</div>
         <div class="platform-name" style="font-family: var(--font-retro); font-size: 15px; color: var(--text-muted); letter-spacing: 2px;">LINUX</div>
         <div class="platform-detect" style="font-family: var(--font-pixel); font-size: 8px; color: var(--accent-green); margin-top: 6px; letter-spacing: 1px; visibility: hidden;">DETECTED ✓</div>
         <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-top: 8px;">Ubuntu/Fedora/Arch</div>
       </div>
-      <div id="platform-macos" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center;">
+      <div id="platform-macos" class="platform-card" style="border: 1px solid var(--border-subtle); padding: 20px 12px; text-align: center; cursor: pointer;" data-platform="macos">
         <div style="font-size: 22px; margin-bottom: 8px;">🍎</div>
         <div class="platform-name" style="font-family: var(--font-retro); font-size: 15px; color: var(--text-muted); letter-spacing: 2px;">MACOS</div>
         <div class="platform-detect" style="font-family: var(--font-pixel); font-size: 8px; color: var(--accent-green); margin-top: 6px; letter-spacing: 1px; visibility: hidden;">DETECTED ✓</div>
         <div style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-top: 8px;">13+ (Ventura)</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hud-divider"></div>
+
+  <!-- What's New in v0.2.0 -->
+  <section class="py-10 px-6 max-w-2xl mx-auto">
+    <p class="section-label" style="color: var(--accent-red);">NEW IN v0.2.0</p>
+    <div class="flex flex-col gap-2">
+      <div style="border: 1px solid var(--border-subtle); padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-gold);">+</span>
+        <div>
+          <span style="font-family: var(--font-retro); font-size: 15px; color: var(--accent-gold);">Background Daemon</span>
+          <span style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-left: 8px;">Runs silently, gathers intel, auto-restarts on crash</span>
+        </div>
+      </div>
+      <div style="border: 1px solid var(--border-subtle); padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-green);">+</span>
+        <div>
+          <span style="font-family: var(--font-retro); font-size: 15px; color: var(--accent-green);">Email Intelligence</span>
+          <span style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-left: 8px;">LLM-powered triage, deadline detection, auto-draft replies</span>
+        </div>
+      </div>
+      <div style="border: 1px solid var(--border-subtle); padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-blue);">+</span>
+        <div>
+          <span style="font-family: var(--font-retro); font-size: 15px; color: var(--accent-blue);">Toast Notifications</span>
+          <span style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-left: 8px;">Windows native popups for urgent emails, reminders, suggestions</span>
+        </div>
+      </div>
+      <div style="border: 1px solid var(--border-subtle); padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-pixel); font-size: 10px; color: var(--accent-purple);">+</span>
+        <div>
+          <span style="font-family: var(--font-retro); font-size: 15px; color: var(--accent-purple);">System Tray</span>
+          <span style="font-family: var(--font-retro); font-size: 13px; color: var(--text-faint); margin-left: 8px;">Quick access, DND toggle, voice control from taskbar</span>
+        </div>
       </div>
     </div>
   </section>
@@ -111,17 +217,32 @@ const modules = [
       </div>
     </div>
   </section>
+
+  <div class="hud-divider"></div>
+
+  <!-- PyPI badge -->
+  <section class="py-8 px-6 text-center max-w-2xl mx-auto">
+    <p style="font-family: var(--font-retro); font-size: 14px; color: var(--text-faint); letter-spacing: 1px;">
+      Available on <a href="https://pypi.org/project/homie-ai/" style="color: var(--accent-blue); text-decoration: underline;">PyPI</a>
+      &nbsp;•&nbsp;
+      Source on <a href="https://github.com/MSG-88/Homie" style="color: var(--accent-blue); text-decoration: underline;">GitHub</a>
+    </p>
+    <p style="font-family: var(--font-pixel); font-size: 8px; color: var(--text-ghost); letter-spacing: 2px; margin-top: 8px;">
+      LICENSE: MPL-2.0 • PYTHON 3.11+ • ZERO TELEMETRY
+    </p>
+  </section>
 </BaseLayout>
 
 <script>
-  // Copy button
-  const copyBtn = document.getElementById('copy-btn');
-  copyBtn?.addEventListener('click', () => {
-    navigator.clipboard.writeText('pip install homie-ai');
-    if (copyBtn) {
-      copyBtn.textContent = 'COPIED ✓';
-      setTimeout(() => { copyBtn.textContent = 'COPY'; }, 2000);
-    }
+  // Copy buttons
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = (btn as HTMLElement).dataset.cmd || '';
+      navigator.clipboard.writeText(cmd);
+      const el = btn as HTMLElement;
+      el.textContent = 'COPIED ✓';
+      setTimeout(() => { el.textContent = 'COPY'; }, 2000);
+    });
   });
 
   // Platform detection
@@ -152,6 +273,14 @@ const modules = [
       if (detect) detect.style.visibility = 'visible';
       const name = card.querySelector('.platform-name') as HTMLElement;
       if (name) name.style.color = '#f1c40f';
+    }
+  }
+
+  // Auto-scroll to Windows section if Windows detected
+  if (platform === 'windows') {
+    const section = document.getElementById('windows-installer');
+    if (section) {
+      section.style.borderLeft = '2px solid rgba(241, 196, 15, 0.3)';
     }
   }
 </script>

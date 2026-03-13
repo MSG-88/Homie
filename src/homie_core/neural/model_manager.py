@@ -4,7 +4,12 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None
+    _HAS_NUMPY = False
 
 
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -30,6 +35,11 @@ class EmbeddingModel:
 
     def load(self, device: str = "auto") -> None:
         """Load the ONNX model and tokenizer."""
+        if not _HAS_NUMPY:
+            raise ImportError(
+                "numpy is required for neural embeddings. "
+                "Install with: pip install homie-ai[neural]"
+            )
         with self._lock:
             if self._loaded:
                 return

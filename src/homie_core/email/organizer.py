@@ -18,6 +18,11 @@ HOMIE_LABELS = {
     "newsletter": "Homie/Newsletters",
     "social": "Homie/Social",
     "review": "Homie/Review",
+    "personal": "Homie/Personal",
+    "travel": "Homie/Travel",
+    "order": "Homie/Orders",
+    "security": "Homie/Security",
+    "promotion": "Homie/Promotions",
 }
 
 # Currency patterns

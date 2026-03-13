@@ -23,10 +23,12 @@ class EmailService:
     Used by the daemon for sync callbacks and by tools for queries.
     """
 
-    def __init__(self, vault, cache_conn: sqlite3.Connection, working_memory=None):
+    def __init__(self, vault, cache_conn: sqlite3.Connection, working_memory=None,
+                 model_engine=None):
         self._vault = vault
         self._conn = cache_conn
         self._working_memory = working_memory
+        self._model_engine = model_engine
         self._providers: dict[str, Any] = {}  # account_id -> GmailProvider
         self._sync_engines: dict[str, Any] = {}  # account_id -> SyncEngine
         self._classifiers: dict[str, Any] = {}  # account_id -> EmailClassifier
@@ -57,7 +59,10 @@ class EmailService:
                 provider = GmailProvider(account_id=account_id)
                 provider.authenticate(cred, vault=self._vault,
                                       client_id=client_id, client_secret=client_secret)
-                classifier = EmailClassifier(user_email=account_id)
+                classifier = EmailClassifier(
+                    user_email=account_id,
+                    model_engine=self._model_engine,
+                )
 
                 label_ids = self._ensure_homie_labels(provider)
 
@@ -171,6 +176,7 @@ class EmailService:
 
     def get_summary(self, days: int = 1) -> dict:
         """Get email summary for last N days."""
+        from homie_core.email.classifier import clean_snippet
         cutoff = time.time() - (days * 86400)
         rows = self._conn.execute(
             "SELECT priority, is_read, subject, sender FROM emails WHERE date > ? ORDER BY date DESC",
@@ -182,6 +188,7 @@ class EmailService:
 
     def get_unread(self, account: str = "all") -> dict:
         """Get unread emails grouped by priority."""
+        from homie_core.email.classifier import clean_snippet
         query = "SELECT id, subject, sender, snippet, priority, account_id FROM emails WHERE is_read=0"
         params: list = []
         if account != "all":
@@ -192,7 +199,7 @@ class EmailService:
 
         grouped: dict[str, list] = {"high": [], "medium": [], "low": []}
         for r in rows:
-            entry = {"id": r[0], "subject": r[1], "sender": r[2], "snippet": r[3]}
+            entry = {"id": r[0], "subject": r[1], "sender": r[2], "snippet": clean_snippet(r[3] or "")}
             grouped.get(r[4], grouped["medium"]).append(entry)
         return grouped
 
@@ -217,6 +224,234 @@ class EmailService:
                 return
             except Exception:
                 continue
+
+    def analyze_email(self, message_id: str) -> dict[str, Any]:
+        """Deep-analyze a single email using the LLM.
+
+        Returns structured analysis with spam_score, priority, categories,
+        intent, action_needed, and summary.
+        """
+        # Find the message in cache first
+        row = self._conn.execute(
+            "SELECT subject, sender, recipients, snippet, body, account_id, "
+            "spam_score, priority, categories FROM emails WHERE id=?",
+            (message_id,),
+        ).fetchone()
+
+        if not row:
+            return {"error": "Message not found"}
+
+        from homie_core.email.models import EmailMessage
+        msg = EmailMessage(
+            id=message_id, thread_id="", account_id=row[5], provider="gmail",
+            subject=row[0], sender=row[1],
+            recipients=json.loads(row[2] or "[]"),
+            snippet=row[3], body=row[4],
+            spam_score=row[6] or 0.0, priority=row[7] or "medium",
+            categories=json.loads(row[8] or "[]"),
+        )
+
+        # Fetch full body if not cached
+        if not msg.body:
+            for provider in self._providers.values():
+                try:
+                    msg.body = provider.fetch_message_body(message_id)
+                    break
+                except Exception:
+                    continue
+
+        # Try LLM analysis
+        classifier = next(iter(self._classifiers.values()), None)
+        if classifier:
+            llm_result = classifier.llm_classify(msg)
+            if llm_result:
+                llm_result["heuristic_spam_score"] = msg.spam_score
+                llm_result["heuristic_priority"] = msg.priority
+                llm_result["subject"] = msg.subject
+                llm_result["sender"] = msg.sender
+                return llm_result
+
+        # Fallback: return heuristic data
+        return {
+            "subject": msg.subject,
+            "sender": msg.sender,
+            "spam_score": msg.spam_score,
+            "priority": msg.priority,
+            "categories": msg.categories,
+            "intent": "LLM unavailable — heuristic classification only",
+            "action_needed": msg.priority == "high",
+            "summary": msg.snippet or "",
+        }
+
+    def triage(self, account: str = "all", max_emails: int = 15) -> dict[str, Any]:
+        """Batch-triage unread emails using the LLM.
+
+        Returns structured triage with per-email analysis.
+        """
+        query = "SELECT id, thread_id, account_id, subject, sender, recipients, snippet, body, spam_score, priority, categories, date FROM emails WHERE is_read=0"
+        params: list = []
+        if account != "all":
+            query += " AND account_id=?"
+            params.append(account)
+        query += " ORDER BY date DESC LIMIT ?"
+        params.append(max_emails)
+
+        rows = self._conn.execute(query, params).fetchall()
+        if not rows:
+            return {"status": "No unread emails", "emails": []}
+
+        from homie_core.email.models import EmailMessage
+        messages = []
+        for r in rows:
+            messages.append(EmailMessage(
+                id=r[0], thread_id=r[1], account_id=r[2], provider="gmail",
+                subject=r[3], sender=r[4],
+                recipients=json.loads(r[5] or "[]"),
+                snippet=r[6], body=r[7],
+                spam_score=r[8] or 0.0, priority=r[9] or "medium",
+                categories=json.loads(r[10] or "[]"),
+                date=r[11] or 0.0,
+            ))
+
+        classifier = next(iter(self._classifiers.values()), None)
+        if classifier:
+            llm_results = classifier.llm_triage_batch(messages)
+            if llm_results:
+                # Merge LLM results with message metadata
+                results_by_id = {r["id"]: r for r in llm_results if isinstance(r, dict) and "id" in r}
+                merged = []
+                for msg in messages:
+                    llm = results_by_id.get(msg.id, {})
+                    merged.append({
+                        "id": msg.id,
+                        "subject": msg.subject,
+                        "sender": msg.sender,
+                        "date": msg.date,
+                        "heuristic_spam": msg.spam_score,
+                        "heuristic_priority": msg.priority,
+                        "llm_spam": llm.get("spam_score", msg.spam_score),
+                        "llm_priority": llm.get("priority", msg.priority),
+                        "categories": llm.get("categories", msg.categories),
+                        "intent": llm.get("intent", ""),
+                        "action_needed": llm.get("action_needed", False),
+                        "summary": llm.get("summary", msg.snippet or ""),
+                    })
+
+                # Separate into buckets
+                action_needed = [e for e in merged if e["action_needed"]]
+                spam = [e for e in merged if e["llm_spam"] > 0.7]
+                important = [e for e in merged if not e["action_needed"] and e["llm_spam"] <= 0.7 and e["llm_priority"] in ("high", "medium")]
+
+                return {
+                    "status": f"Triaged {len(messages)} emails",
+                    "action_needed": action_needed,
+                    "important": important,
+                    "likely_spam": spam,
+                    "all": merged,
+                }
+
+        # Fallback: heuristic-only triage with clean snippets
+        from homie_core.email.classifier import clean_snippet
+        result = []
+        for msg in messages:
+            result.append({
+                "id": msg.id, "subject": msg.subject, "sender": msg.sender,
+                "spam_score": round(msg.spam_score, 2),
+                "priority": msg.priority,
+                "categories": msg.categories,
+                "snippet": clean_snippet(msg.snippet or ""),
+            })
+        return {"status": f"{len(messages)} emails (heuristic only)", "emails": result}
+
+    def get_intelligent_digest(self, days: int = 1) -> str | dict:
+        """Generate a natural-language email digest using the LLM.
+
+        Falls back to structured summary if LLM unavailable.
+        """
+        cutoff = time.time() - (days * 86400)
+        rows = self._conn.execute(
+            "SELECT id, thread_id, account_id, subject, sender, recipients, "
+            "snippet, body, spam_score, priority, categories, date, is_read "
+            "FROM emails WHERE date > ? ORDER BY date DESC",
+            (cutoff,),
+        ).fetchall()
+
+        if not rows:
+            return f"No emails in the last {days} day(s)."
+
+        from homie_core.email.models import EmailMessage
+        messages = []
+        for r in rows:
+            messages.append(EmailMessage(
+                id=r[0], thread_id=r[1], account_id=r[2], provider="gmail",
+                subject=r[3], sender=r[4],
+                recipients=json.loads(r[5] or "[]"),
+                snippet=r[6], body=r[7],
+                spam_score=r[8] or 0.0, priority=r[9] or "medium",
+                categories=json.loads(r[10] or "[]"),
+                date=r[11] or 0.0, is_read=bool(r[12]),
+            ))
+
+        classifier = next(iter(self._classifiers.values()), None)
+        if classifier:
+            digest = classifier.llm_digest(messages, days=days)
+            if digest:
+                return digest
+
+        # Fallback: structured summary
+        return self.get_summary(days=days)
+
+    def deep_analyze_email(self, message_id: str) -> dict[str, Any]:
+        """Deep contextual analysis: deadlines, required actions, impact, draft reply.
+
+        Goes beyond classification — understands what the email means for the user
+        and what they should do about it.
+        """
+        row = self._conn.execute(
+            "SELECT subject, sender, recipients, snippet, body, account_id, "
+            "spam_score, priority, categories, date FROM emails WHERE id=?",
+            (message_id,),
+        ).fetchone()
+
+        if not row:
+            return {"error": "Message not found"}
+
+        from homie_core.email.models import EmailMessage
+        msg = EmailMessage(
+            id=message_id, thread_id="", account_id=row[5], provider="gmail",
+            subject=row[0], sender=row[1],
+            recipients=json.loads(row[2] or "[]"),
+            snippet=row[3], body=row[4],
+            spam_score=row[6] or 0.0, priority=row[7] or "medium",
+            categories=json.loads(row[8] or "[]"),
+            date=row[9] or 0.0,
+        )
+
+        # Fetch full body if needed
+        if not msg.body:
+            for provider in self._providers.values():
+                try:
+                    msg.body = provider.fetch_message_body(message_id)
+                    break
+                except Exception:
+                    continue
+
+        classifier = next(iter(self._classifiers.values()), None)
+        if classifier:
+            result = classifier.llm_deep_analyze(msg)
+            if result:
+                result["subject"] = msg.subject
+                result["sender"] = msg.sender
+                result["message_id"] = message_id
+                return result
+
+        return {
+            "subject": msg.subject,
+            "sender": msg.sender,
+            "message_id": message_id,
+            "urgency": "no_action",
+            "action_detail": "LLM unavailable — cannot analyze",
+        }
 
     def _load_config(self, account_id: str) -> EmailSyncConfig:
         """Load sync config from cache.db."""

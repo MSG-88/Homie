@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homie-ai"
-version = "0.1.0"
-description = "Fully local, privacy-first personal AI assistant"
+version = "0.2.0"
+description = "Fully local, privacy-first personal AI assistant with background intelligence"
 readme = "README.md"
 license = "MPL-2.0"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["ai", "assistant", "local", "privacy", "llm", "gguf", "llama-cpp"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
     "Operating System :: Microsoft :: Windows",
@@ -34,6 +34,7 @@ dependencies = [
     "feedparser>=6.0",
     "prompt-toolkit>=3.0",
     "requests>=2.31",
+    "psutil>=5.9",
 ]
 
 [project.urls]
@@ -99,6 +100,7 @@ all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,s
 
 [project.scripts]
 homie = "homie_app.cli:main"
+homie-daemon = "homie_app.daemon:run_daemon"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

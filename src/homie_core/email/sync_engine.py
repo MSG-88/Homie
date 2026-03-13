@@ -48,6 +48,7 @@ class SyncEngine:
         self._organizer = organizer
         self._vault = vault
         self._working_memory = working_memory
+        self._llm_enabled = classifier.has_llm
 
     def initial_sync(self) -> SyncResult:
         """Full sync — fetch last 7 days, classify, organize, store."""
@@ -144,6 +145,33 @@ class SyncEngine:
         msg.spam_score = self._classifier.spam_score(msg)
         msg.priority = self._classifier.priority_score(msg)
         msg.categories = self._classifier.detect_categories(msg)
+
+        # LLM pass for ambiguous emails (heuristic unsure: 0.2-0.85 spam range)
+        # or medium priority (heuristic couldn't decide high vs low)
+        is_ambiguous = 0.2 <= msg.spam_score <= 0.85 or msg.priority == "medium"
+        if self._llm_enabled and is_ambiguous:
+            # Fetch full body if not already present
+            if not msg.body:
+                try:
+                    msg.body = self._provider.fetch_message_body(msg.id)
+                except Exception:
+                    pass
+            llm_result = self._classifier.llm_classify(msg)
+            if llm_result:
+                # Blend heuristic and LLM scores (60% LLM, 40% heuristic)
+                msg.spam_score = 0.6 * llm_result["spam_score"] + 0.4 * msg.spam_score
+                msg.priority = llm_result["priority"]
+                # Merge LLM categories with heuristic categories
+                for cat in llm_result.get("categories", []):
+                    if cat not in msg.categories:
+                        msg.categories.append(cat)
+                # Store LLM analysis metadata in body field as suffix
+                intent = llm_result.get("intent", "")
+                summary = llm_result.get("summary", "")
+                action = llm_result.get("action_needed", False)
+                if intent or summary:
+                    analysis = f"\n\n---\n[Homie Analysis]\nIntent: {intent}\nSummary: {summary}\nAction needed: {'Yes' if action else 'No'}"
+                    msg.body = (msg.body or "") + analysis
 
         if 0.3 <= msg.spam_score <= 0.8 and "review" not in msg.categories:
             msg.categories.append("review")
