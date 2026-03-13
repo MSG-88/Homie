@@ -134,6 +134,82 @@ def _save_config(cfg: HomieConfig, path: str) -> None:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
+def _step_user_profile(cfg: HomieConfig) -> None:
+    """Step 5: User profile."""
+    cfg.user.name = input("  What should I call you? [Master]: ").strip() or "Master"
+
+
+def _step_screen_reader(cfg: HomieConfig) -> None:
+    """Step 6: Screen reader consent."""
+    print("\n  Screen awareness helps me understand what you're working on.")
+    choice = _ask_choice("  Choose your comfort level:", [
+        "Window titles only — I see app names, nothing more",
+        "Window titles + text reading — I can read on-screen text (PII filtered)",
+        "Full visual awareness — I can see and understand your screen (PII filtered)",
+        "Off — I only know what you tell me",
+    ])
+    if choice < 3:
+        cfg.screen_reader.enabled = True
+        cfg.screen_reader.level = choice + 1
+        cfg.privacy.screen_reader_consent = True
+    else:
+        cfg.screen_reader.enabled = False
+
+
+def _step_email(cfg: HomieConfig) -> None:
+    """Step 7: Email connection (Gmail OAuth)."""
+    connect = input("  Connect Gmail? (y/n) [n]: ").strip().lower()
+    if connect == "y":
+        print("  Gmail OAuth setup will be handled through homie settings.")
+        cfg.connections.gmail.connected = True
+    else:
+        cfg.connections.gmail.connected = False
+
+
+def _step_social_connections(cfg: HomieConfig) -> None:
+    """Step 8: Social connections (all platforms)."""
+    print("\n  Social connections can be set up later in homie settings.")
+
+
+def _step_privacy(cfg: HomieConfig) -> None:
+    """Step 9: Privacy preferences."""
+    print("\n  Privacy preferences use secure defaults.")
+
+
+def _step_plugins(cfg: HomieConfig) -> None:
+    """Step 10: Plugin selection."""
+    print("\n  Plugins can be configured in homie settings.")
+
+
+def _step_summary(cfg: HomieConfig) -> None:
+    """Step 11: Summary of configuration."""
+    print("\n  Configuration Summary:")
+    print(f"    Name: {cfg.user.name}")
+    print(f"    Voice: {'enabled' if cfg.voice.enabled else 'disabled'}")
+    print(f"    Screen Reader: {'level ' + str(cfg.screen_reader.level) if cfg.screen_reader.enabled else 'off'}")
+    print(f"    LLM Backend: {cfg.llm.backend}")
+
+
+def _step_service_mode(cfg: HomieConfig) -> None:
+    """Step 12: Service mode."""
+    choice = _ask_choice("  How should Homie run?", [
+        "On-demand — I start when you run 'homie start'",
+        "Windows Service — I start on login and run in the background",
+    ])
+    cfg.service.mode = "windows_service" if choice == 1 else "on_demand"
+
+
+def _detect_existing_config(path: str) -> tuple[bool, dict]:
+    """Check for existing config file."""
+    import yaml
+    from pathlib import Path
+    p = Path(path)
+    if p.exists():
+        with open(p) as f:
+            return True, yaml.safe_load(f) or {}
+    return False, {}
+
+
 def run_init(auto: bool = False, config_path: str | None = None) -> HomieConfig:
     print("=" * 50)
     print("  Welcome to Homie AI Setup")
