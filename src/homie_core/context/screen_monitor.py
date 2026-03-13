@@ -17,6 +17,12 @@ class WindowInfo:
 
 class ScreenMonitor:
     def __init__(self):
+        import warnings
+        warnings.warn(
+            "ScreenMonitor is deprecated. Use homie_core.screen_reader.window_tracker.WindowTracker instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._last_window: Optional[WindowInfo] = None
 
     def get_active_window(self) -> WindowInfo:

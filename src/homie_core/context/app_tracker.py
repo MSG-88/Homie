@@ -9,6 +9,12 @@ from homie_core.utils import utc_now
 
 class AppTracker:
     def __init__(self):
+        import warnings
+        warnings.warn(
+            "AppTracker is deprecated. Use homie_core.screen_reader.window_tracker.WindowTracker instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._usage: dict[str, float] = defaultdict(float)  # app -> total seconds
         self._switches: list[dict] = []
         self._current_app: str | None = None
