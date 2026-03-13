@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class LLMConfig(BaseModel):
@@ -22,11 +22,49 @@ class LLMConfig(BaseModel):
 
 class VoiceConfig(BaseModel):
     enabled: bool = False
+    hotkey: str = "ctrl+8"
     wake_word: str = "hey homie"
-    stt_model: str = "large-v3"
-    tts_voice: str = "default"
-    mode: str = "text_only"
-    hotkey: str = "alt+8"
+    mode: str = "hybrid"
+
+    stt_engine: str = "faster-whisper"
+    stt_model_fast: str = "tiny.en"
+    stt_model_quality: str = "medium"
+    stt_language: str = "auto"
+
+    tts_mode: str = "auto"
+    tts_voice_fast: str = "piper"
+    tts_voice_quality: str = "kokoro"
+    tts_voice_multilingual: str = "melo"
+
+    vad_engine: str = "silero"
+    vad_threshold: float = 0.5
+    vad_silence_ms: int = 300
+
+    barge_in: bool = True
+    conversation_timeout: int = 120
+    max_exit_prompts: int = 3
+    exit_phrases: list[str] = ["goodbye", "stop", "that's all"]
+
+    device: str = "auto"
+    audio_sample_rate: int = 16000
+    audio_chunk_size: int = 512
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data: dict) -> dict:
+        if isinstance(data, dict):
+            if "stt_model" in data and "stt_model_quality" not in data:
+                data["stt_model_quality"] = data.pop("stt_model")
+            elif "stt_model" in data:
+                data.pop("stt_model")
+            if "tts_voice" in data and "tts_voice_quality" not in data:
+                data["tts_voice_quality"] = data.pop("tts_voice")
+            elif "tts_voice" in data:
+                data.pop("tts_voice")
+            mode_map = {"text_only": "push_to_talk", "audio": "hybrid"}
+            if "mode" in data and data["mode"] in mode_map:
+                data["mode"] = mode_map[data["mode"]]
+        return data
 
 
 class StorageConfig(BaseModel):
