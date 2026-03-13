@@ -1076,19 +1076,27 @@ def cmd_connect(args, config=None):
                     ["identity", "read", "submit", "privatemessages"], 8552),
         "linkedin": ("https://www.linkedin.com/oauth/v2/authorization",
                       "https://www.linkedin.com/oauth/v2/accessToken",
-                      ["r_liteprofile", "r_emailaddress", "w_member_social"], 8553),
-        "facebook": ("https://www.facebook.com/v19.0/dialog/oauth",
-                      "https://graph.facebook.com/v19.0/oauth/access_token",
+                      ["openid", "profile", "email", "w_member_social"], 8553),
+        "facebook": ("https://www.facebook.com/v22.0/dialog/oauth",
+                      "https://graph.facebook.com/v22.0/oauth/access_token",
                       ["public_profile", "email", "pages_read_engagement", "pages_manage_posts"], 8554),
+        "instagram": ("https://www.instagram.com/oauth/authorize",
+                       "https://api.instagram.com/oauth/access_token",
+                       ["instagram_business_basic", "instagram_business_content_publish",
+                        "instagram_business_manage_comments", "instagram_business_manage_messages"], 8555),
     }
     if provider in _SM_PLATFORMS:
         auth_url, token_url, scopes, port = _SM_PLATFORMS[provider]
+        use_pkce = provider in ("twitter", "instagram")
+        is_public_client = provider == "instagram"
         _connect_social_media(args, config=cfg, platform=provider,
                               auth_url=auth_url, token_url=token_url,
-                              scopes=scopes, port=port)
+                              scopes=scopes, port=port,
+                              use_pkce=use_pkce, is_public_client=is_public_client,
+                              reddit_permanent=(provider == "reddit"))
         return
     if provider != "gmail":
-        print(f"Provider '{provider}' not yet supported. Available: gmail, slack, twitter, reddit, linkedin, facebook, blog")
+        print(f"Provider '{provider}' not yet supported. Available: gmail, slack, twitter, reddit, linkedin, facebook, instagram, blog")
         return
 
     from homie_core.email.oauth import GmailOAuth, GMAIL_SCOPES
@@ -1377,7 +1385,8 @@ def cmd_folder(args, config=None):
 
 
 def _connect_social_media(args, config=None, platform="", auth_url="", token_url="",
-                          scopes=None, port=8551):
+                          scopes=None, port=8551, use_pkce=False,
+                          is_public_client=False, reddit_permanent=False):
     """Generic OAuth flow for social media platforms."""
     import webbrowser
     from homie_core.social_media.oauth import SocialMediaOAuth
@@ -1413,9 +1422,11 @@ def _connect_social_media(args, config=None, platform="", auth_url="", token_url
         platform=platform, client_id=client_id, client_secret=client_secret,
         auth_url=auth_url, token_url=token_url,
         scopes=scopes or [], redirect_port=port,
+        use_pkce=use_pkce, is_public_client=is_public_client,
     )
 
-    url = oauth.get_auth_url()
+    extra_params = {"duration": "permanent"} if reddit_permanent else None
+    url = oauth.get_auth_url(extra_params=extra_params)
     print(f"\nOpening browser for {platform.title()} authorization...")
     webbrowser.open(url)
 

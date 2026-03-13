@@ -23,7 +23,7 @@ from homie_core.social_media.provider import (
 
 logger = logging.getLogger(__name__)
 
-_API = "https://graph.facebook.com/v19.0"
+_API = "https://graph.facebook.com/v22.0"
 
 
 class InstagramProvider(
@@ -33,7 +33,7 @@ class InstagramProvider(
     PublishProvider,
     DirectMessageProvider,
 ):
-    """Instagram integration via the Meta Graph API v19.0."""
+    """Instagram integration via the Meta Graph API v22.0."""
 
     platform_name = "instagram"
 
