@@ -35,11 +35,40 @@ class Console:
         if not skip_init:
             self._bootstrap()
 
+    def _needs_wizard(self) -> bool:
+        """Check if first-run wizard is needed."""
+        cfg = self._config
+        if not getattr(cfg.llm, "model_path", ""):
+            return True
+        if not getattr(cfg, "user_name", ""):
+            return True
+        return False
+
+    def _run_wizard(self):
+        """Run the init wizard inline in the console."""
+        self._print("\nWelcome to Homie AI! Let's get you set up.\n")
+        try:
+            from homie_app.init import run_init
+            run_init(auto=False, config_path=self._config_path)
+            from homie_core.config import load_config
+            self._config = load_config(self._config_path)
+            self._user_name = self._config.user_name or "User"
+        except Exception as e:
+            self._print(f"Wizard error: {e}. You can configure manually with /settings.")
+
     def _bootstrap(self):
         """Load model + intelligence stack, register commands."""
         self._print("=" * 50)
         self._print("  Homie AI v0.1.0 — Interactive Console")
         self._print("=" * 50)
+
+        # Check if wizard needed
+        if self._needs_wizard():
+            self._run_wizard()
+            if self._needs_wizard():
+                self._print("Setup incomplete. Use /settings to finish configuration.\n")
+                self._register_commands()
+                return
 
         # Initialize vault once for the session
         try:
