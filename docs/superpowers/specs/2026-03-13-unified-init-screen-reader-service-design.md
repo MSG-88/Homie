@@ -70,7 +70,7 @@ User presses Enter -> retry detection
 "No microphone detected. Voice will be disabled.
  You can enable it later in Homie settings."
        |
-Skip to Step 3
+Continue to Step 3 (normal progression, voice.enabled = false)
 ```
 
 **Implementation:**
@@ -78,6 +78,7 @@ Skip to Step 3
 - Open Settings: `os.startfile('ms-settings:privacy-microphone')` — native Windows URI, no admin needed
 - Max 3 retries with clear messaging between each
 - Never blocks init — user can return via `homie settings`
+- Step 4 (Voice Configuration) is always presented, but with `enabled` pre-set based on mic detection result
 
 **Voice defaults when mic granted:**
 
@@ -87,6 +88,8 @@ Skip to Step 3
 | `mode` | `push_to_talk` | Safest starting mode, no accidental captures |
 | `hotkey` | `ctrl+8` | Existing default, changeable in Step 4 |
 | `wake_word` | `hey homie` | Only active in hybrid/conversational mode |
+
+**Voice defaults when mic NOT found:** `enabled = false`. The Pydantic model default remains `False` — the init wizard sets it to `True` only when a microphone is confirmed available. This means old configs without the init wizard continue to work unchanged.
 
 ---
 
@@ -151,7 +154,15 @@ Choose your comfort level:
 You can change this anytime. I never capture passwords, banking, or private browsing.
 ```
 
-### 4.6 Integration with Homie Brain
+### 4.6 Relationship to Existing `context/` Module
+
+The codebase already has `src/homie_core/context/screen_monitor.py` (with `ScreenMonitor` class using `win32gui.GetForegroundWindow`) and `src/homie_core/context/app_tracker.py`. The new `screen_reader/` module **replaces and extends** these:
+
+- `screen_reader/window_tracker.py` supersedes `context/screen_monitor.py` and `context/app_tracker.py`
+- The old modules are deprecated and removed
+- `screen_reader/` feeds its output into the existing `context/` module's data pipeline, so the rest of the system (brain, behavioral observers) receives screen context through the same interface they already use
+
+### 4.7 Integration with Homie Brain
 
 Screen context feeds into the existing `context/` module alongside system monitoring (CPU/RAM/GPU). The brain uses it for:
 - **Proactive suggestions:** "I see you're on GitHub reviewing a PR — want me to summarize the changes?"
@@ -185,7 +196,7 @@ Screen context feeds into the existing `context/` module alongside system monito
 
 ### 5.3 Notification System
 
-Windows Toast Notifications (via `plyer` or `win10toast`):
+Windows Toast Notifications via `windows-toasts` (actively maintained, supports Windows 10/11 action buttons, progress bars, and rich content). Fallback: `plyer` for basic title+message if `windows-toasts` unavailable. Note: `win10toast` is unmaintained since 2020 and not recommended.
 
 | Notification Type | Trigger | Example |
 |---|---|---|
@@ -207,8 +218,13 @@ A lightweight floating widget (separate from the full overlay):
 ### 5.5 Privacy Controls
 
 - Notifications never show full email/message content by default — just sender + count
-- "Do Not Disturb" mode suppresses all popups (still collects, shows on next check)
 - Notification categories individually toggleable in `homie settings`
+
+**DND modes are independent:**
+- `notifications.dnd_schedule` — suppresses toast notifications and popups only
+- `screen_reader.dnd` — pauses all screen captures (T1/T2/T3) only
+- Tray menu "Do Not Disturb" toggles notification DND; "Pause Screen Reader" toggles screen reader DND
+- Both can be on or off independently
 
 ---
 
@@ -255,6 +271,22 @@ Homie Settings
 
 Selecting any option re-presents that section's wizard flow with current values shown. Changes saved immediately to `homie.config.yaml`.
 
+**Settings-to-Init step mapping:**
+
+| Settings Item | Init Step(s) | Notes |
+|---|---|---|
+| [1] LLM & Model | Step 3 | Model selection, backend, path/API |
+| [2] Voice | Steps 2 + 4 | Includes mic permission retry + voice config |
+| [3] User Profile | Step 5 | Name, language, timezone, work hours |
+| [4] Screen Reader | Step 6 | Tier selection, intervals, blocklist |
+| [5] Email & Socials | Steps 7 + 8 | All platform connections |
+| [6] Privacy | Step 9 | Observers, retention, storage limits |
+| [7] Plugins | Step 10 | Enable/disable integrations |
+| [8] Notifications | N/A (new) | Category toggles, DND schedule (not in init — uses defaults until changed) |
+| [9] Service Mode | Step 12 (partial) | Switch between on-demand and Windows service |
+
+Steps 1 (Hardware Detection) and 11 (Summary) have no settings equivalent — hardware is auto-detected and summary is init-only.
+
 ### 6.4 System Tray Integration
 
 Right-clicking the tray icon when running as service:
@@ -286,14 +318,14 @@ Stop Homie
 | Provider | Issue | Fix |
 |---|---|---|
 | **LinkedIn** | `r_liteprofile`, `r_emailaddress` deprecated | Replace with `openid`, `profile`, `email`, `w_member_social` |
-| **Instagram** | Old scope names, uses Facebook auth URL | New auth URL `instagram.com/oauth/authorize`, `instagram_business_*` prefixed scopes, PKCE required |
-| **Facebook** | API version v19.0 outdated | Bump to v24.0 |
-| **Twitter** | No PKCE support | Add Authorization Code with PKCE flow |
+| **Instagram** | Old scope names, deprecated Basic Display API | Auth URL: `https://www.instagram.com/oauth/authorize` (Instagram Login for Business). Scopes: `instagram_business_basic`, `instagram_business_content_publish`, `instagram_business_manage_comments`, `instagram_business_manage_messages`. PKCE required for public clients. Business/Creator accounts only. |
+| **Facebook** | API version v19.0 outdated | Bump to latest stable version (verify at implementation time — likely v22.0-v24.0). Update both auth and token URLs. |
+| **Twitter** | No PKCE support | Add Authorization Code with PKCE flow. `SocialMediaOAuth` needs `code_verifier`/`code_challenge` parameters (see Section 7.6). |
+| **Reddit** | Missing `duration=permanent` | Add `duration=permanent` to auth request for persistent refresh tokens |
 
 ### 7.2 Configs Unchanged
 
 - **Gmail** — correct as-is
-- **Reddit** — correct, add `duration=permanent` for refresh tokens
 - **Slack** — correct as-is
 
 ### 7.3 Init Step 8 — Guided Social Connection
@@ -329,7 +361,7 @@ Store credentials -> open browser for OAuth consent -> capture token
 | **Twitter** | developer.x.com | "Free tier: read + post only. DMs require Basic tier ($200/mo)." |
 | **Reddit** | reddit.com/prefs/apps | "Create a 'script' type app. Free, no restrictions." |
 | **LinkedIn** | linkedin.com/developers | "Tokens expire in 60 days — Homie will remind you to reconnect." |
-| **Facebook** | developers.facebook.com | "Page management requires app review. Personal posting works immediately. API v24.0." |
+| **Facebook** | developers.facebook.com | "Page management requires app review. Personal posting works immediately." |
 | **Instagram** | developers.facebook.com | "Business/Creator account required. Personal accounts not supported." |
 | **Slack** | api.slack.com/apps | "Create a bot app. Bot tokens don't expire." |
 | **Blog/RSS** | N/A | "Just paste your RSS/Atom feed URL. No developer app needed." |
@@ -348,6 +380,43 @@ Store credentials -> open browser for OAuth consent -> capture token
 10. LinkedIn (token expiration hassle)
 11. WhatsApp (experimental, last due to risk)
 
+### 7.6 PKCE Interface Change to `SocialMediaOAuth`
+
+The existing `SocialMediaOAuth` class needs a breaking change to support PKCE (required by Twitter and Instagram):
+
+**New parameters on `__init__`:**
+- `use_pkce: bool = False` — when True, generates `code_verifier` and `code_challenge`
+- `is_public_client: bool = False` — when True, omits `client_secret` from token exchange
+
+**Changes to `build_auth_url()`:**
+- When `use_pkce=True`: append `code_challenge` and `code_challenge_method=S256` to auth URL
+
+**Changes to `exchange()`:**
+- When `use_pkce=True`: send `code_verifier` instead of (or in addition to) `client_secret`
+- When `is_public_client=True`: omit `client_secret` from POST body
+
+**PKCE generation:**
+```python
+code_verifier = base64url(random(32))  # 43-128 chars
+code_challenge = base64url(sha256(code_verifier))
+```
+
+**Platforms using PKCE:**
+- Twitter: `use_pkce=True` (required)
+- Instagram: `use_pkce=True, is_public_client=True` (required for public clients)
+- All others: `use_pkce=False` (unchanged behavior)
+
+### 7.7 LinkedIn Token Refresh & Expiry Handling
+
+LinkedIn access tokens expire after 60 days. Refresh tokens (available with Community Management API product) last 365 days.
+
+**Implementation:**
+- Store `expires_at` timestamp in vault when token is obtained
+- Notification router sends a "reconnection_needed" alert 7 days before expiry (category: `system_alerts`)
+- If refresh token is available: auto-refresh silently
+- If no refresh token: prompt user via notification toast to re-authenticate through `homie settings > Email & Socials > LinkedIn`
+- On token expiry mid-session: gracefully degrade (disable LinkedIn features, log warning, queue notification)
+
 ---
 
 ## 8. New Messaging Platforms
@@ -363,6 +432,7 @@ Store credentials -> open browser for OAuth consent -> capture token
 ### 8.2 WhatsApp (Experimental)
 
 - **Auth:** QR code scan via whatsapp-web.js bridge (Node subprocess)
+- **Runtime dependency:** Requires Node.js 18+ installed on the system. Init will check for `node` in PATH; if missing, show: "WhatsApp requires Node.js. Install from nodejs.org, then retry in Homie settings."
 - **Capabilities:** Full read + write on paired account
 - **Legal risk:** High — unofficial protocol, Meta bans AI assistants, frequent account suspensions
 - **Warning shown during init:**
@@ -377,6 +447,7 @@ Store credentials -> open browser for OAuth consent -> capture token
 
 - **Auth:** None — reads local Phone Link SQLite database
 - **Location:** `%LOCALAPPDATA%\Packages\Microsoft.YourPhone_8wekyb3d8bbwe\LocalCache\Indexed\{GUID}\System\Database`
+- **GUID discovery:** Enumerate subdirectories under the `Indexed\` folder. Each paired device has a unique GUID directory. If multiple devices are found, prompt user to select. Fall back gracefully if the package directory doesn't exist (Phone Link not installed).
 - **Capabilities:** Read-only access to synced SMS/MMS messages. RCS availability depends on phone manufacturer.
 - **Auto-detection during init:**
   ```
@@ -425,7 +496,7 @@ screen_reader:
     - "*1Password*"
     - "*KeePass*"
     - "*LastPass*"
-  dnd: false
+  dnd: false              # pauses screen captures independently of notification DND
 
 # Service Mode
 service:
@@ -467,12 +538,14 @@ connections:
 
 ```yaml
 voice:
-  enabled: true           # changed default from false to true
+  enabled: false          # Pydantic default stays false; init wizard sets true when mic confirmed
   mode: push_to_talk      # safe default for new installs
 
 privacy:
   screen_reader_consent: false  # explicit consent flag
 ```
+
+**Note:** The Pydantic model default for `voice.enabled` remains `False`. The init wizard sets it to `True` only when the microphone permission flow succeeds. This preserves backwards compatibility with existing configs.
 
 ### 9.3 New Pydantic Models
 
@@ -501,7 +574,7 @@ Credentials (client ID, secret, access tokens, refresh tokens) remain in the enc
 | `screen_reader/pii_filter.py` | | Regex + pattern-based PII stripping |
 | `screen_reader/capture_scheduler.py` | | Hybrid polling + event-driven orchestration |
 | `notifications/` | `src/homie_core/notifications/` | Toast notifications + category routing |
-| `notifications/toast.py` | | Windows Toast via `plyer` or `win10toast` |
+| `notifications/toast.py` | | Windows Toast via `windows-toasts` (fallback: `plyer`) |
 | `notifications/router.py` | | Category filtering, DND logic |
 | `service/` | `src/homie_app/service/` | Windows service registration + lifecycle |
 | `service/scheduler_task.py` | | Task Scheduler create/remove/status |
@@ -541,12 +614,39 @@ Window events                                  Proactive suggestions
 | Package | Purpose | Required/Optional |
 |---|---|---|
 | `telethon` | Telegram client API | Optional (messaging extra) |
-| `plyer` or `win10toast` | Windows toast notifications | Required for service mode |
-| `mss` | Fast screenshot capture | Optional (screen reader T3) |
-| `Pillow` | Image resize before LLM analysis | Optional (screen reader T3) |
-| `pywin32` | Win32 API for window tracking | Optional (screen reader T1) |
+| `windows-toasts` | Windows 10/11 toast notifications | Required for service mode |
+| `plyer` | Fallback notifications | Optional (fallback if windows-toasts unavailable) |
+| `mss` | Fast screenshot capture | Optional (screen_reader extra) |
+| `Pillow` | Image resize before LLM analysis | Optional (screen_reader extra) |
+| `pywin32` | Win32 API for window tracking | Optional (screen_reader extra) |
+| Node.js 18+ | WhatsApp bridge runtime | Optional (only if WhatsApp connected) |
 
-### 10.5 Unchanged
+### 10.5 pyproject.toml Extras Groups
+
+```toml
+[project.optional-dependencies]
+# Existing extras remain unchanged (voice, model, storage, app, neural, email, social)
+# New extras:
+messaging = ["telethon>=1.34"]
+screen_reader = ["mss>=9.0", "Pillow>=10.0", "pywin32>=306"]
+service = ["windows-toasts>=1.0", "plyer>=2.1"]
+# Updated 'all' extra includes new groups
+all = ["homie[voice,model,storage,app,neural,email,social,messaging,screen_reader,service]"]
+```
+
+### 10.6 Migration Path for Existing Users
+
+**When existing users run `homie init`:**
+- Detect existing `homie.config.yaml` and offer: "Existing config found. Update with new features, or start fresh?"
+- "Update" mode: preserve all existing settings, walk through only new steps (5-User Profile, 6-Screen Reader, 8-Social Connections for new platforms, 12-Service Mode)
+- "Fresh" mode: full 12-step wizard from scratch
+
+**Deprecated commands:**
+- `homie connect <provider>` shows: "This command has been merged into Homie settings. Run `homie settings` and select [5] Email & Socials."
+- `homie voice` shows: "This command has been merged into Homie settings. Run `homie settings` and select [2] Voice."
+- Deprecated commands remain for one major version, then are removed.
+
+### 10.7 Unchanged
 
 - Voice pipeline
 - Memory system
