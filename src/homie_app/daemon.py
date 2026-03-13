@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -33,6 +34,23 @@ from homie_app.overlay import OverlayPopup
 from homie_app.prompts.system import build_system_prompt
 from homie_core.vault.secure_vault import SecureVault
 from homie_core.vault.sync_manager import SyncManager as VaultSyncManager
+
+
+def _check_token_expiry(vault, notification_router, provider: str, warn_days: int = 7) -> None:
+    """Check if a provider's token is expiring soon and send notification."""
+    try:
+        cred = vault.get_credential(provider=provider, account_id="oauth_client")
+        if cred and cred.expires_at:
+            days_remaining = (cred.expires_at - time.time()) / 86400
+            if 0 < days_remaining <= warn_days:
+                from homie_core.notifications.router import Notification
+                notification_router.route(Notification(
+                    category="system_alerts",
+                    title=f"{provider.title()} token expiring",
+                    body=f"Your {provider.title()} connection expires in {int(days_remaining)} days. Reconnect in Homie settings.",
+                ))
+    except Exception:
+        pass  # Vault may not have this provider
 
 
 class HomieDaemon:
@@ -665,7 +683,6 @@ class HomieDaemon:
             signal.signal(signal.SIGINT, lambda *_: self.stop())
             tick_counter = 0
             while self._running:
-                import time
                 time.sleep(1)
                 tick_counter += 1
                 if tick_counter >= 60:
