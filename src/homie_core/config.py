@@ -174,6 +174,13 @@ class ConnectionsConfig(BaseModel):
     blog: BlogConnection = Field(default_factory=BlogConnection)
 
 
+class LocationConfig(BaseModel):
+    city: str = ""
+    region: str = ""
+    country: str = ""
+    timezone: str = ""
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -185,6 +192,7 @@ class HomieConfig(BaseModel):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     connections: ConnectionsConfig = Field(default_factory=ConnectionsConfig)
+    location: Optional[LocationConfig] = None
     user_name: str = ""
 
 
