@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 from pathlib import Path
@@ -537,6 +538,41 @@ class HomieDaemon:
         except Exception:
             logger.warning("Notification system initialization failed", exc_info=True)
 
+    def _init_network(self):
+        """Initialize LAN discovery and sync server (optional)."""
+        try:
+            from homie_core.network.discovery import HomieDiscovery
+            from homie_core.network.server import SyncServer
+            import uuid
+            import threading
+
+            device_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname()))[:8]
+            device_name = socket.gethostname()
+
+            self._discovery = HomieDiscovery(
+                device_id=device_id, device_name=device_name, port=8765,
+            )
+            self._discovery.start_advertising()
+            self._discovery.start_browsing()
+
+            self._sync_server = SyncServer(
+                device_id=device_id, device_name=device_name, port=8765,
+            )
+
+            def _run_sync():
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._sync_server.start())
+
+            self._sync_thread = threading.Thread(target=_run_sync, daemon=True)
+            self._sync_thread.start()
+            logger.info("LAN sync server started on port 8765")
+        except ImportError:
+            logger.debug("Network module not available — LAN sync disabled")
+        except Exception as e:
+            logger.warning("Failed to start LAN sync: %s", e)
+
     def _execute_scheduled_job(self, job: Job) -> str:
         """Callback for the scheduler — processes a due job's prompt."""
         if not self._ensure_brain():
@@ -813,6 +849,9 @@ class HomieDaemon:
             for provider in ("gmail", "slack"):
                 _check_token_expiry(self._vault, self._notification_router, provider)
 
+        # Initialize LAN discovery and sync
+        self._init_network()
+
         print("\nHomie is running in the background. Press Alt+8 or say 'hey homie' to activate.")
         print("Press Ctrl+C to stop.\n")
 
@@ -1069,6 +1108,11 @@ class HomieDaemon:
         self._financial_service = None
         self._folder_service = None
         self._social_service = None
+
+        # Stop LAN discovery
+        if hasattr(self, '_discovery'):
+            self._discovery.stop_advertising()
+            self._discovery.stop_browsing()
 
         # Lock vault and stop sync
         self._vault_sync = None
