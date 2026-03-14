@@ -1,0 +1,12 @@
+[Unit]
+Description=Homie AI Background Daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/homie-daemon --headless
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

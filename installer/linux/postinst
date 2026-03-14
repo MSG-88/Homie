@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+HOMIE_DIR="$HOME/.homie"
+mkdir -p "$HOMIE_DIR"
+SYSTEMD_DIR="$HOME/.config/systemd/user"
+mkdir -p "$SYSTEMD_DIR"
+cp /usr/local/share/homie/homie.service "$SYSTEMD_DIR/homie.service"
+echo "Homie AI installed. Run 'homie' to get started."

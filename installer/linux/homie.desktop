@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Homie AI
+Comment=Local-first personal AI assistant
+Exec=homie start
+Icon=homie
+Terminal=true
+Type=Application
+Categories=Utility;
+Keywords=ai;assistant;local;privacy;

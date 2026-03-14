@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+systemctl --user stop homie.service 2>/dev/null || true
+systemctl --user disable homie.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/homie.service"
+systemctl --user daemon-reload 2>/dev/null || true
