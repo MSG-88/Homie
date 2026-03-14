@@ -94,9 +94,19 @@ social = [
     "requests>=2.31",
 ]
 messaging = ["telethon>=1.34"]
-screen-reader = ["mss>=9.0", "Pillow>=10.0", "pywin32>=306"]
+screen-reader = ["mss>=9.0", "Pillow>=10.0", "pywin32>=306; sys_platform == 'win32'"]
 service = ["windows-toasts>=1.0", "plyer>=2.1"]
-all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service]"]
+inference = [
+    "openai>=1.30",
+]
+network = [
+    "zeroconf>=0.131",
+    "websockets>=12.0",
+]
+keyring-linux = [
+    "SecretStorage>=3.3; sys_platform == 'linux'",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service,inference,network,keyring-linux]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
