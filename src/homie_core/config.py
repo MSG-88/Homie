@@ -183,6 +183,24 @@ class LocationConfig(BaseModel):
     timezone: str = ""
 
 
+class QubridConfig(BaseModel):
+    enabled: bool = True
+    model: str = "Qwen/Qwen3.5-Flash"
+    base_url: str = "https://platform.qubrid.com/v1"
+    timeout: int = 30
+
+
+class LANInferenceConfig(BaseModel):
+    prefer_desktop: bool = True
+    max_latency_ms: int = 500
+
+
+class InferenceConfig(BaseModel):
+    priority: list[str] = ["local", "lan", "qubrid"]
+    qubrid: QubridConfig = QubridConfig()
+    lan: LANInferenceConfig = LANInferenceConfig()
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -196,6 +214,7 @@ class HomieConfig(BaseModel):
     connections: ConnectionsConfig = Field(default_factory=ConnectionsConfig)
     location: Optional[LocationConfig] = None
     user_name: str = ""
+    inference: InferenceConfig = Field(default_factory=InferenceConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
