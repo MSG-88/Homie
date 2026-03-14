@@ -1,0 +1,33 @@
+Name:           homie-ai
+Version:        @@VERSION@@
+Release:        1%{?dist}
+Summary:        Local-first personal AI assistant
+License:        MPL-2.0
+URL:            https://heyhomie.app
+
+%description
+Fully local, privacy-first personal AI assistant with
+background intelligence, voice interaction, and email integration.
+
+%install
+mkdir -p %{buildroot}/usr/local/bin
+mkdir -p %{buildroot}/usr/local/share/homie
+mkdir -p %{buildroot}/usr/share/applications
+cp -r %{_sourcedir}/homie/* %{buildroot}/usr/local/share/homie/
+ln -sf /usr/local/share/homie/homie %{buildroot}/usr/local/bin/homie
+ln -sf /usr/local/share/homie/homie-daemon %{buildroot}/usr/local/bin/homie-daemon
+cp %{_sourcedir}/homie.desktop %{buildroot}/usr/share/applications/
+
+%files
+/usr/local/bin/homie
+/usr/local/bin/homie-daemon
+/usr/local/share/homie/
+/usr/share/applications/homie.desktop
+
+%post
+mkdir -p "$HOME/.homie"
+
+%preun
+systemctl --user stop homie.service 2>/dev/null || true
+systemctl --user disable homie.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/homie.service"
