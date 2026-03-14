@@ -129,6 +129,40 @@ def _load_model_engine(cfg):
     return engine, entry
 
 
+def _create_inference_router(cfg, engine):
+    """Wrap the model engine in an InferenceRouter with Qubrid fallback."""
+    from homie_core.inference.router import InferenceRouter
+    import os
+
+    # Try to get Qubrid API key from environment first
+    qubrid_key = os.environ.get("HOMIE_QUBRID_API_KEY", "")
+
+    # Fall back to vault if available
+    if not qubrid_key:
+        try:
+            from homie_core.vault.secure_vault import SecureVault
+            vault = SecureVault()
+            if vault.is_unlocked:
+                cred = vault.get_credential(provider="qubrid", account_id="default")
+                if cred:
+                    qubrid_key = cred.token
+        except Exception:
+            pass
+
+    router = InferenceRouter(
+        config=cfg,
+        model_engine=engine,
+        qubrid_api_key=qubrid_key,
+    )
+
+    # Show fallback banner if applicable
+    banner = router.fallback_banner
+    if banner:
+        print(f"\n  {banner}\n")
+
+    return router
+
+
 def _init_intelligence_stack(cfg):
     """Initialize the full intelligence stack: memories, plugins, RAG, tools.
 
