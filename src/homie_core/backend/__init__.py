@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from homie_core.backend.composite import CompositeBackend
 from homie_core.backend.local_filesystem import LocalFilesystemBackend
 from homie_core.backend.protocol import (
     BackendProtocol,
@@ -14,6 +15,7 @@ from homie_core.backend.state import StateBackend
 
 __all__ = [
     "BackendProtocol",
+    "CompositeBackend",
     "EditResult",
     "ExecutableBackend",
     "ExecutionResult",
