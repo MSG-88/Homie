@@ -216,8 +216,19 @@ def register_builtin_tools(
     # FILE TOOLS
     # ===================================================================
 
-    def tool_search_files(pattern: str, directory: str = "") -> str:
+    def tool_search_files(pattern: str, directory: str = "", backend=None) -> str:
         """Search for files matching a pattern."""
+        if backend:
+            try:
+                matches = backend.glob(pattern, base=directory or None)
+                if not matches:
+                    return f"No files matching '{pattern}'"
+                lines = [f"Found {len(matches)} files:"]
+                for m in matches:
+                    lines.append(f"  {m}")
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Search error: {e}"
         search_dir = Path(directory) if directory else Path.home()
         if not search_dir.exists():
             return f"Directory not found: {search_dir}"
@@ -247,8 +258,18 @@ def register_builtin_tools(
         category="files",
     ))
 
-    def tool_read_file(path: str, max_lines: int = 50) -> str:
+    def tool_read_file(path: str, max_lines: int = 50, backend=None) -> str:
         """Read contents of a text file."""
+        if backend:
+            try:
+                text = backend.read(path)
+                lines = text.splitlines()
+                if len(lines) > int(max_lines):
+                    shown = "\n".join(lines[:int(max_lines)])
+                    return f"{shown}\n\n... ({len(lines) - int(max_lines)} more lines)"
+                return text
+            except Exception as e:
+                return f"Error reading file: {e}"
         file_path = Path(path)
         if not file_path.exists():
             return f"File not found: {path}"
@@ -519,12 +540,18 @@ def register_builtin_tools(
         "dd if=", ":()", "chmod -r 777 /", "shutdown", "reboot",
     }
 
-    def tool_run_command(command: str) -> str:
+    def tool_run_command(command: str, backend=None) -> str:
         """Execute a shell command with safety checks."""
         cmd_lower = command.lower().strip()
         for blocked in BLOCKED_COMMANDS:
             if blocked in cmd_lower:
                 return f"Blocked: command contains dangerous pattern '{blocked}'."
+
+        if backend:
+            try:
+                return backend.execute(command)
+            except Exception as e:
+                return f"Command error: {e}"
 
         try:
             result = subprocess.run(

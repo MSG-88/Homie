@@ -6,6 +6,7 @@ dispatches tool calls parsed from model output.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from dataclasses import dataclass, field
@@ -187,6 +188,11 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, Tool] = {}
+        self._context: dict[str, Any] = {}
+
+    def set_context(self, context: dict[str, Any]) -> None:
+        """Set execution context (e.g. backend) injected into tools that accept it."""
+        self._context = context
 
     def register(self, tool: Tool) -> None:
         """Register a tool."""
@@ -226,7 +232,15 @@ class ToolRegistry:
             resolved_name = call.name
 
         try:
-            output = tool.execute(**call.arguments)
+            kwargs = dict(call.arguments)
+            # Inject backend if the tool function accepts it
+            try:
+                sig = inspect.signature(tool.execute)
+                if "backend" in sig.parameters:
+                    kwargs.setdefault("backend", self._context.get("backend"))
+            except (ValueError, TypeError):
+                pass
+            output = tool.execute(**kwargs)
             return ToolResult(tool_name=resolved_name, success=True, output=str(output))
         except TypeError as e:
             return ToolResult(
