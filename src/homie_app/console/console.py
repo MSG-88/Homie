@@ -98,6 +98,17 @@ class Console:
 
         from homie_core.brain.orchestrator import BrainOrchestrator
         from homie_app.prompts.system import build_system_prompt
+        from homie_core.backend.local_filesystem import LocalFilesystemBackend
+        from homie_app.middleware_factory import build_middleware_stack
+
+        backend = LocalFilesystemBackend(root_dir=self._config.storage.path)
+        tool_registry.set_context({"backend": backend})
+
+        middleware_stack = build_middleware_stack(
+            config=self._config,
+            working_memory=self._wm,
+            backend=backend,
+        )
 
         self._brain = BrainOrchestrator(
             model_engine=self._engine,
@@ -106,6 +117,7 @@ class Console:
             semantic_memory=self._sm,
             tool_registry=tool_registry if tool_registry.list_tools() else None,
             rag_pipeline=rag,
+            middleware_stack=middleware_stack,
         )
 
         known_facts = []

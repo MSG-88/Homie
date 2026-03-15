@@ -654,11 +654,24 @@ class HomieDaemon:
                 from homie_core.browser.tools import register_browser_tools
                 register_browser_tools(tool_registry, self._browser_service)
 
+            from homie_core.backend.local_filesystem import LocalFilesystemBackend
+            from homie_app.middleware_factory import build_middleware_stack
+
+            backend = LocalFilesystemBackend(root_dir=self._config.storage.path)
+            tool_registry.set_context({"backend": backend})
+
+            middleware_stack = build_middleware_stack(
+                config=self._config,
+                working_memory=self._working_memory,
+                backend=backend,
+            )
+
             self._brain = BrainOrchestrator(
                 model_engine=self._engine,
                 working_memory=self._working_memory,
                 tool_registry=tool_registry,
                 rag_pipeline=self._rag,
+                middleware_stack=middleware_stack,
             )
             # Dynamic system prompt with user name and time awareness
             system_prompt = build_system_prompt(
