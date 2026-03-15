@@ -62,13 +62,38 @@ class BrainOrchestrator:
     def hooks(self) -> HookRegistry:
         return self._hooks
 
+    # ------------------------------------------------------------------
+    # Context-overflow detection
+    # ------------------------------------------------------------------
+
+    def _is_context_overflow(self, error: Exception) -> bool:
+        """Return True if *error* looks like a model context-length exceeded error."""
+        msg = str(error).lower()
+        if "too long" in msg:
+            return True
+        return "context" in msg and ("overflow" in msg or "length" in msg)
+
+    # ------------------------------------------------------------------
+    # Process methods (with overflow recovery)
+    # ------------------------------------------------------------------
+
     def process(self, user_input: str, *, state: dict | None = None) -> str:
         """Full cognitive pipeline — blocking generate."""
         state = state or {}
         message = self._middleware.run_before_turn(user_input, state)
         if message is None:
             return ""
-        response = self._cognitive.process(message)
+        try:
+            response = self._cognitive.process(message)
+        except Exception as e:
+            if self._is_context_overflow(e):
+                state["context_overflow"] = True
+                message = self._middleware.run_before_turn(user_input, state)
+                if message is None:
+                    return ""
+                response = self._cognitive.process(message)
+            else:
+                raise
         response = self._middleware.run_after_turn(response, state)
         return response
 
@@ -78,7 +103,17 @@ class BrainOrchestrator:
         message = self._middleware.run_before_turn(user_input, state)
         if message is None:
             return
-        tokens = list(self._cognitive.process_stream(message))
+        try:
+            tokens = list(self._cognitive.process_stream(message))
+        except Exception as e:
+            if self._is_context_overflow(e):
+                state["context_overflow"] = True
+                message = self._middleware.run_before_turn(user_input, state)
+                if message is None:
+                    return
+                tokens = list(self._cognitive.process_stream(message))
+            else:
+                raise
         response = "".join(tokens)
         response = self._middleware.run_after_turn(response, state)
         # Yield final response as single token to preserve streaming interface

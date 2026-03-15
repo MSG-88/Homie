@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, call
 from homie_core.brain.orchestrator import BrainOrchestrator
 from homie_core.memory.working import WorkingMemory
 from homie_core.middleware import HomieMiddleware, MiddlewareStack, HookRegistry
@@ -146,3 +146,110 @@ def test_process_stream_fires_middleware():
     assert len(before_calls) == 1
     assert len(after_calls) == 1
     assert "".join(tokens) in ("hello world", after_calls[0])
+
+
+# ---------------------------------------------------------------------------
+# Context-overflow recovery tests
+# ---------------------------------------------------------------------------
+
+def test_process_handles_context_overflow():
+    """Context-overflow error from engine is caught; recovery runs and retries."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+
+    # First call raises overflow; second call succeeds
+    engine.generate.side_effect = [
+        RuntimeError("context length exceeded"),
+        "recovered response",
+    ]
+
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+
+    # Populate some conversation so middleware has something to compress
+    for i in range(10):
+        wm.add_message("user" if i % 2 == 0 else "assistant", "x" * 50)
+
+    result = br.process("hello")
+    assert result == "recovered response"
+    assert engine.generate.call_count == 2
+
+
+def test_process_handles_context_overflow_too_long():
+    """'too long' in error message is also detected as context overflow."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+
+    engine.generate.side_effect = [
+        RuntimeError("prompt is too long for the model"),
+        "ok",
+    ]
+
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+    result = br.process("test")
+    assert result == "ok"
+
+
+def test_non_overflow_errors_propagate():
+    """Non-overflow runtime errors are re-raised without retry."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+    engine.generate.side_effect = RuntimeError("model crashed unexpectedly")
+
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+
+    with pytest.raises(RuntimeError, match="model crashed"):
+        br.process("hello")
+
+    # Only one attempt — no retry
+    assert engine.generate.call_count == 1
+
+
+def test_process_stream_handles_context_overflow():
+    """Streaming path also recovers from context-overflow errors."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+
+    # First stream call raises overflow; second succeeds
+    engine.stream.side_effect = [
+        RuntimeError("context overflow"),
+        iter(["recovered", " stream"]),
+    ]
+
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+
+    for i in range(10):
+        wm.add_message("user" if i % 2 == 0 else "assistant", "x" * 50)
+
+    tokens = list(br.process_stream("hello"))
+    assert "".join(tokens) in ("recovered stream", "recovered  stream")
+    assert engine.stream.call_count == 2
+
+
+def test_process_stream_non_overflow_errors_propagate():
+    """Non-overflow errors in streaming path are re-raised."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+    engine.stream.side_effect = RuntimeError("gpu out of memory")
+
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+
+    with pytest.raises(RuntimeError, match="gpu out of memory"):
+        list(br.process_stream("hello"))
+
+    assert engine.stream.call_count == 1
+
+
+def test_is_context_overflow_detection():
+    """_is_context_overflow correctly identifies overflow error messages."""
+    engine = MagicMock()
+    wm = WorkingMemory()
+    br = BrainOrchestrator(model_engine=engine, working_memory=wm)
+
+    assert br._is_context_overflow(RuntimeError("context length exceeded"))
+    assert br._is_context_overflow(RuntimeError("context overflow"))
+    assert br._is_context_overflow(RuntimeError("input too long"))
+    assert br._is_context_overflow(RuntimeError("Context Length Exceeded"))
+
+    assert not br._is_context_overflow(RuntimeError("model crashed"))
+    assert not br._is_context_overflow(RuntimeError("out of memory"))
+    assert not br._is_context_overflow(ValueError("bad argument"))
