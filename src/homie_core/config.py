@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import os
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
+
+
+class ModelTier(str, Enum):
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+
+
+class ModelProfile(BaseModel):
+    name: str
+    tier: ModelTier
+    context_length: int = 4096
+    supports_tools: bool = True
+    location: str = "local"  # "local" | "lan" | "qubrid"
+    priority: int = 0
 
 
 class LLMConfig(BaseModel):
