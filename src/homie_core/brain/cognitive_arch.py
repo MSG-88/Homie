@@ -30,6 +30,7 @@ from homie_core.memory.episodic import EpisodicMemory
 from homie_core.memory.semantic import SemanticMemory
 from homie_core.intelligence.self_reflection import SelfReflection
 from homie_core.brain.tool_registry import ToolRegistry, parse_tool_calls
+from homie_core.middleware.hooks import HookRegistry, PipelineStage, RetrievalBundle
 from homie_core.brain.agentic_loop import AgenticLoop, _strip_tool_markers
 from homie_core.brain.persona import select_persona, get_persona_guidance
 from homie_core.brain.iteration_budget import IterationBudget
@@ -263,6 +264,7 @@ class CognitiveArchitecture:
         system_prompt: str = "",
         tool_registry: Optional[ToolRegistry] = None,
         rag_pipeline: Optional[RagPipeline] = None,
+        hooks: Optional[HookRegistry] = None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -272,6 +274,7 @@ class CognitiveArchitecture:
         self._system_prompt = system_prompt
         self._tools = tool_registry
         self._rag = rag_pipeline
+        self._hooks = hooks or HookRegistry()
         self._budget = IterationBudget(max_iterations=20)
         self._agentic = AgenticLoop(model_engine, tool_registry, budget=self._budget) if tool_registry else None
         self._compressor = ContextCompressor()
@@ -663,7 +666,9 @@ class CognitiveArchitecture:
             self._wm._conversation = compressed  # Replace in-place
 
         awareness = self._perceive()
+        awareness = self._hooks.emit(PipelineStage.PERCEIVED, awareness)
         complexity = self._classify(user_input, awareness)
+        complexity = self._hooks.emit(PipelineStage.CLASSIFIED, complexity)
 
         budget_cfg = _TOKEN_BUDGETS[complexity]
         facts = self._retrieve_relevant_facts(user_input, budget=budget_cfg["prompt_chars"] // 4)
@@ -682,6 +687,12 @@ class CognitiveArchitecture:
                 else:
                     documents_block = safe_docs
 
+        bundle = RetrievalBundle(facts=facts, episodes=episodes, documents=documents_block)
+        bundle = self._hooks.emit(PipelineStage.RETRIEVED, bundle)
+        facts = bundle.facts
+        episodes = bundle.episodes
+        documents_block = bundle.documents
+
         prompt = self._build_cognitive_prompt(user_input, complexity, awareness, facts, episodes, documents_block)
 
         # Inject tool descriptions if tools are available
@@ -690,7 +701,10 @@ class CognitiveArchitecture:
             if tool_prompt:
                 prompt = prompt.replace("\nUser:", f"\n{tool_prompt}\n\nUser:")
 
+        prompt = self._hooks.emit(PipelineStage.PROMPT_BUILT, prompt)
+
         adjustments = self._reflect_on_response(user_input, complexity, awareness)
+        adjustments = self._hooks.emit(PipelineStage.REFLECTED, adjustments)
         temperature = adjustments.get("temperature", budget_cfg["temperature"])
 
         return prompt, budget_cfg, temperature
