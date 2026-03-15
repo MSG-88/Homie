@@ -5,8 +5,11 @@ from homie_core.middleware.hooks import HookCallback, HookRegistry, PipelineStag
 from homie_core.middleware.arg_truncation import ArgTruncationMiddleware
 from homie_core.middleware.context_overflow import ContextOverflowRecoveryMiddleware
 from homie_core.middleware.dangling_tool_repair import DanglingToolCallMiddleware
+from homie_core.middleware.edit_conflict import EditConflictMiddleware
+from homie_core.middleware.hitl import HITLMiddleware
 from homie_core.middleware.large_result_eviction import LargeResultEvictionMiddleware
 from homie_core.middleware.long_line_split import LongLineSplitMiddleware
+from homie_core.middleware.shell_allowlist import ShellAllowlistMiddleware
 from homie_core.middleware.stack import MiddlewareStack
 from homie_core.middleware.subagent import SubAgentMiddleware
 from homie_core.middleware.summarization import SummarizationMiddleware
@@ -17,6 +20,8 @@ __all__ = [
     "ArgTruncationMiddleware",
     "ContextOverflowRecoveryMiddleware",
     "DanglingToolCallMiddleware",
+    "EditConflictMiddleware",
+    "HITLMiddleware",
     "HomieMiddleware",
     "HookCallback",
     "HookRegistry",
@@ -25,6 +30,7 @@ __all__ = [
     "MiddlewareStack",
     "PipelineStage",
     "RetrievalBundle",
+    "ShellAllowlistMiddleware",
     "SubAgentMiddleware",
     "SummarizationMiddleware",
     "TodoMiddleware",
