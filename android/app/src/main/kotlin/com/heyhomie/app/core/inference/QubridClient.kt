@@ -22,7 +22,11 @@ class QubridClient(
 
     val isAvailable: Boolean get() = apiKey.isNotBlank()
 
-    suspend fun generate(prompt: String, systemPrompt: String? = null): String =
+    suspend fun generate(
+        prompt: String,
+        systemPrompt: String? = null,
+        modelHint: String? = null
+    ): String =
         withContext(Dispatchers.IO) {
             val messages = JSONArray().apply {
                 systemPrompt?.let {
@@ -31,7 +35,7 @@ class QubridClient(
                 put(JSONObject().put("role", "user").put("content", prompt))
             }
             val body = JSONObject().apply {
-                put("model", model)
+                put("model", modelHint ?: model)
                 put("messages", messages)
                 put("max_tokens", 2048)
             }

@@ -30,20 +30,29 @@ class InferenceRouter(
             else -> null
         }
 
-    suspend fun generate(prompt: String, systemPrompt: String? = null): String {
-        if (localBridge?.isAvailable == true) {
+    suspend fun generate(
+        prompt: String,
+        systemPrompt: String? = null,
+        model: String? = null,
+        preferredLocation: String? = null
+    ): String {
+        if (preferredLocation != "cloud" && localBridge?.isAvailable == true) {
             return try {
                 localBridge.generate(prompt, systemPrompt)
             } catch (e: Exception) {
-                fallbackGenerate(prompt, systemPrompt)
+                fallbackGenerate(prompt, systemPrompt, model)
             }
         }
-        return fallbackGenerate(prompt, systemPrompt)
+        return fallbackGenerate(prompt, systemPrompt, model)
     }
 
-    private suspend fun fallbackGenerate(prompt: String, systemPrompt: String?): String {
+    private suspend fun fallbackGenerate(
+        prompt: String,
+        systemPrompt: String?,
+        model: String? = null
+    ): String {
         if (qubridClient?.isAvailable == true) {
-            return qubridClient.generate(prompt, systemPrompt)
+            return qubridClient.generate(prompt, systemPrompt, model)
         }
         throw IllegalStateException("No inference source available")
     }
