@@ -277,7 +277,6 @@ class CognitiveArchitecture:
         self._hooks = hooks or HookRegistry()
         self._budget = IterationBudget(max_iterations=20)
         self._agentic = AgenticLoop(model_engine, tool_registry, budget=self._budget) if tool_registry else None
-        self._compressor = ContextCompressor()
         self._learning = LearningPipeline(
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
@@ -659,12 +658,6 @@ class CognitiveArchitecture:
         - Injection detection on external context (RAG documents)
         - Secret redaction on tool-generated content
         """
-        # Auto-compress conversation if it's getting too long
-        conversation = self._wm.get_conversation()
-        if self._compressor.needs_compression(conversation):
-            compressed = self._compressor.compress(conversation)
-            self._wm._conversation = compressed  # Replace in-place
-
         awareness = self._perceive()
         awareness = self._hooks.emit(PipelineStage.PERCEIVED, awareness)
         complexity = self._classify(user_input, awareness)
