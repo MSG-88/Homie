@@ -224,6 +224,15 @@ class NetworkConfig(BaseModel):
     sync_scope: str = "all"  # "all", "conversations", "manual"
 
 
+class ContextConfig(BaseModel):
+    summarize_trigger_pct: float = 0.85
+    summarize_keep_pct: float = 0.10
+    manual_compact_pct: float = 0.50
+    large_result_threshold: int = 80000
+    long_line_threshold: int = 5000
+    arg_truncation_threshold: int = 2000
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -239,6 +248,7 @@ class HomieConfig(BaseModel):
     user_name: str = ""
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
