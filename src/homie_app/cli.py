@@ -398,6 +398,28 @@ def _register_meta_tools(tool_registry, sm, em, wm):
     ))
 
 
+def _init_watchdog(cfg):
+    """Initialize the self-healing watchdog."""
+    from homie_core.self_healing.watchdog import HealthWatchdog
+    from homie_core.self_healing.probes.config_probe import ConfigProbe
+
+    if not getattr(cfg, 'self_healing', None) or not cfg.self_healing.enabled:
+        return None
+
+    storage_path = Path(cfg.storage.path)
+    wd = HealthWatchdog(
+        db_path=storage_path / "health.db",
+        probe_interval=cfg.self_healing.probe_interval,
+    )
+
+    # Register config probe (always available)
+    config_path = Path("homie.config.yaml")
+    if config_path.exists():
+        wd.register_probe(ConfigProbe(config=cfg, config_path=config_path))
+
+    return wd
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point (slim — all interactive commands live in Console)
 # ---------------------------------------------------------------------------
