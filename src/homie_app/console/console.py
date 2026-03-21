@@ -239,36 +239,95 @@ class Console:
         self._shutdown()
 
     def _chat(self, user_input: str):
-        """Send input to brain, stream response."""
+        """Send input to brain, stream response with futuristic spinner."""
         from rich.live import Live
         from rich.markdown import Markdown
         from rich.panel import Panel
+        from rich.text import Text
+        from rich.align import Align
+        import random
+
+        # Futuristic thinking messages
+        _THINKING = [
+            "Analyzing neural pathways",
+            "Scanning knowledge base",
+            "Processing quantum state",
+            "Synthesizing response matrix",
+            "Traversing knowledge graph",
+            "Correlating data streams",
+            "Running inference pipeline",
+            "Computing semantic vectors",
+            "Activating cognitive core",
+            "Resolving context layers",
+        ]
+
+        # Futuristic spinner frames (single-line, clean animation)
+        _FRAMES = [
+            "  [cyan]>[/]       ",
+            "  [cyan]>>[/]      ",
+            "  [cyan]>>>[/]     ",
+            "  [cyan]>>>>[/]    ",
+            "  [cyan]>>>>>[/]   ",
+            "  [cyan]>>>>>>[/]  ",
+            "  [cyan]>>>>>>>[/] ",
+            "  [cyan]>>>>>>>>[/]",
+            "  [cyan] >>>>>>>[/]",
+            "  [cyan]  >>>>>>[/]",
+            "  [cyan]   >>>>>[/]",
+            "  [cyan]    >>>>[/]",
+            "  [cyan]     >>>[/]",
+            "  [cyan]      >>[/]",
+            "  [cyan]       >[/]",
+            "  [cyan]        [/]",
+        ]
 
         try:
-            from homie_app.loading import CLILoadingSpinner
-
-            spinner = CLILoadingSpinner(style="random")
-            spinner.start()
             first_token = True
             buffer = ""
+            frame_idx = 0
+            msg = random.choice(_THINKING)
+
             try:
-                with Live(console=rc, refresh_per_second=12, transient=False) as live:
+                with Live(console=rc, refresh_per_second=12, transient=True) as live:
                     for token in self._brain.process_stream(user_input):
                         if first_token:
-                            spinner.stop()
                             first_token = False
                         buffer += token
-                        live.update(Panel(Markdown(buffer), title="[homie.assistant]Homie[/]", border_style="homie.dim"))
-            except Exception:
-                if not first_token:
+                        live.update(Panel(
+                            Markdown(buffer),
+                            title="[homie.assistant]Homie[/]",
+                            border_style="homie.dim",
+                        ))
+
+                    # If no tokens came, we never left the spinner
+                    if first_token:
+                        raise StopIteration("No tokens received")
+
+            except (StopIteration, Exception) as e:
+                if not first_token and not isinstance(e, StopIteration):
                     raise
-                spinner.stop()
-                response = self._brain.process(user_input)
-                rc.print(Panel(Markdown(response), title="[homie.assistant]Homie[/]", border_style="homie.dim"))
-            finally:
-                if first_token:
-                    spinner.stop()
+                # Fallback to blocking with a clean rich spinner
+                with rc.status(
+                    f"[cyan]{msg}...[/]",
+                    spinner="dots",
+                    spinner_style="cyan",
+                ) as status:
+                    response = self._brain.process(user_input)
+                rc.print(Panel(
+                    Markdown(response),
+                    title="[homie.assistant]Homie[/]",
+                    border_style="homie.dim",
+                ))
+
+            # Show the final panel if streaming completed
+            if not first_token and buffer:
+                rc.print(Panel(
+                    Markdown(buffer),
+                    title="[homie.assistant]Homie[/]",
+                    border_style="homie.dim",
+                ))
             rc.print()
+
         except ConnectionError as e:
             self._print(f"Homie> Connection failed: {e}\n")
         except Exception as e:
