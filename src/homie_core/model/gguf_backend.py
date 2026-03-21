@@ -70,7 +70,7 @@ class GGUFBackend:
         self._base_url: str = ""
         self._model_path: str = ""
 
-    def load(self, model_path: str | Path, n_ctx: int = 4096, n_gpu_layers: int = -1, **kwargs) -> None:
+    def load(self, model_path: str | Path, n_ctx: int = 16384, n_gpu_layers: int = -1, **kwargs) -> None:
         server_bin = _find_llama_server()
         port = _find_free_port()
         self._base_url = f"http://127.0.0.1:{port}"
@@ -84,6 +84,14 @@ class GGUFBackend:
             "--host", "127.0.0.1",
             "--port", str(port),
         ]
+
+        # GPU-specific optimisations: flash-attention and quantised KV cache
+        if n_gpu_layers != 0:
+            cmd += [
+                "--flash-attn",
+                "--cache-type-k", "q8_0",
+                "--cache-type-v", "q8_0",
+            ]
 
         # Build environment with CUDA library paths
         env = os.environ.copy()

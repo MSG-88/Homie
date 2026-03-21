@@ -20,7 +20,7 @@ class ModelEngine:
     def current_model(self) -> Optional[ModelEntry]:
         return self._current_model
 
-    def load(self, entry: ModelEntry, n_ctx: int = 4096, n_gpu_layers: int = -1, **kwargs) -> None:
+    def load(self, entry: ModelEntry, n_ctx: int = 16384, n_gpu_layers: int = -1, **kwargs) -> None:
         if entry.format == "gguf":
             from homie_core.model.gguf_backend import GGUFBackend
             backend = GGUFBackend()
