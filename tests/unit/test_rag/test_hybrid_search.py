@@ -155,3 +155,75 @@ class TestHybridSearch:
         search = HybridSearch(vector_store=None)
         results = search.search("anything")
         assert results == []
+
+
+# -----------------------------------------------------------------------
+# HybridSearch with reranker integration
+# -----------------------------------------------------------------------
+
+class TestHybridSearchReranker:
+    """Tests for optional reranker integration in HybridSearch."""
+
+    def test_no_reranker_search_works_normally(self):
+        """HybridSearch without reranker behaves as before."""
+        search = HybridSearch(vector_store=None, reranker=None)
+        search.index_chunk("c1", "machine learning neural networks")
+        search.index_chunk("c2", "recipe for chocolate cake")
+        results = search.search("neural networks", top_k=2)
+        assert len(results) >= 1
+        assert results[0]["id"] == "c1"
+
+    def test_reranker_parameter_accepted(self):
+        """HybridSearch accepts a reranker keyword argument without error."""
+        from homie_core.rag.reranker import CrossEncoderReranker
+        reranker = CrossEncoderReranker()
+        search = HybridSearch(vector_store=None, reranker=reranker)
+        assert search is not None
+
+    def test_fallback_reranker_returns_results(self):
+        """With fallback reranker (no model), results are still returned."""
+        from homie_core.rag.reranker import CrossEncoderReranker
+        reranker = CrossEncoderReranker.__new__(CrossEncoderReranker)
+        reranker._model = None
+        reranker._model_name = "test-model"
+
+        search = HybridSearch(vector_store=None, reranker=reranker)
+        search.index_chunk("c1", "python authentication")
+        search.index_chunk("c2", "javascript frontend")
+        results = search.search("authentication", top_k=2)
+        assert len(results) >= 1
+
+    def test_reranker_result_count_bounded_by_top_k(self):
+        """Results count must not exceed top_k even with reranker."""
+        from homie_core.rag.reranker import CrossEncoderReranker
+        reranker = CrossEncoderReranker.__new__(CrossEncoderReranker)
+        reranker._model = None
+        reranker._model_name = "test-model"
+
+        search = HybridSearch(vector_store=None, reranker=reranker)
+        for i in range(20):
+            search.index_chunk(f"c{i}", f"document about topic {i} shared words here")
+        results = search.search("topic shared words", top_k=5)
+        assert len(results) <= 5
+
+    def test_reranker_result_has_text_field(self):
+        """Results from reranked search still carry full text."""
+        from homie_core.rag.reranker import CrossEncoderReranker
+        reranker = CrossEncoderReranker.__new__(CrossEncoderReranker)
+        reranker._model = None
+        reranker._model_name = "test-model"
+
+        search = HybridSearch(vector_store=None, reranker=reranker)
+        search.index_chunk("c1", "the quick brown fox")
+        results = search.search("quick fox", top_k=1)
+        assert results[0]["text"] == "the quick brown fox"
+
+    def test_none_reranker_is_default(self):
+        """HybridSearch() with no reranker arg behaves identically to reranker=None."""
+        s1 = HybridSearch(vector_store=None)
+        s2 = HybridSearch(vector_store=None, reranker=None)
+        for s in (s1, s2):
+            s.index_chunk("c1", "hello world")
+        r1 = s1.search("hello")
+        r2 = s2.search("hello")
+        assert [r["id"] for r in r1] == [r["id"] for r in r2]

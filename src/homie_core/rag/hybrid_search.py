@@ -187,10 +187,17 @@ class HybridSearch:
         results = search.search("how does auth work?", top_k=5)
     """
 
-    def __init__(self, vector_store=None, bm25_k1: float = 1.5, bm25_b: float = 0.75):
+    def __init__(
+        self,
+        vector_store=None,
+        bm25_k1: float = 1.5,
+        bm25_b: float = 0.75,
+        reranker=None,
+    ):
         self._vector_store = vector_store
         self._bm25 = BM25Index(k1=bm25_k1, b=bm25_b)
         self._texts: dict[str, str] = {}  # id -> text for returning full chunks
+        self._reranker = reranker
 
     def index_chunk(self, chunk_id: str, text: str, metadata: Optional[dict] = None) -> None:
         """Index a chunk in both BM25 and vector stores."""
@@ -242,11 +249,11 @@ class HybridSearch:
 
         # Fuse results
         if bm25_results and vector_results:
-            fused = reciprocal_rank_fusion(bm25_results, vector_results, top_n=top_k)
+            fused = reciprocal_rank_fusion(bm25_results, vector_results, top_n=top_k * 5)
         elif bm25_results:
-            fused = bm25_results[:top_k]
+            fused = bm25_results[: top_k * 5]
         elif vector_results:
-            fused = vector_results[:top_k]
+            fused = vector_results[: top_k * 5]
         else:
             return []
 
@@ -260,7 +267,14 @@ class HybridSearch:
                         entry["text"] = vr.get("text", "")
                         break
 
-        return fused
+        # Optional reranking: rerank top-50 fused results, then return top-K
+        if self._reranker is not None and self._reranker.available:
+            candidates = fused[:50]
+            texts = [entry.get("text", "") for entry in candidates]
+            ranked = self._reranker.rerank(query, texts, top_k=top_k)
+            return [candidates[orig_idx] for orig_idx, _score in ranked]
+
+        return fused[:top_k]
 
     @property
     def size(self) -> int:
