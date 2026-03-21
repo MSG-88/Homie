@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Optional
 
 from homie_app.console.router import SlashCommandRouter
+from homie_app.console.rich_console import rc
+from homie_app.console.boot import show_boot_screen, show_system_check, get_greeting
+from homie_app.console.status_bar import print_status_bar
+from homie_app.console.notification_queue import NotificationQueue, CliNotification
 
 
 class Console:
@@ -58,9 +62,7 @@ class Console:
 
     def _bootstrap(self):
         """Load model + intelligence stack, register commands."""
-        self._print("=" * 50)
-        self._print("  Homie AI v0.1.0 — Interactive Console")
-        self._print("=" * 50)
+        show_boot_screen(rc)
 
         # Check if wizard needed
         if self._needs_wizard():
@@ -71,23 +73,37 @@ class Console:
                 return
 
         # Initialize vault once for the session
+        vault_ok = True
+        vault_detail = "ok"
         try:
             from homie_core.vault.secure_vault import SecureVault
             self._vault = SecureVault()
             self._vault.unlock()
         except Exception as e:
-            self._print(f"  [-] Vault unavailable: {e}")
+            vault_ok = False
+            vault_detail = str(e)
 
         self._print("\n[Loading model...]")
         from homie_app.cli import _load_model_engine
         self._engine, entry = _load_model_engine(self._config)
-        if not self._engine:
-            self._print("  No model found. The setup wizard will help you configure one.")
-            return
+        model_ok = self._engine is not None
+        model_detail = getattr(entry, "name", str(entry)) if entry else "none"
 
         self._print("\n[Initializing intelligence...]")
         from homie_app.cli import _init_intelligence_stack
         self._wm, self._em, self._sm, tool_registry, rag, plugin_mgr = _init_intelligence_stack(self._config)
+
+        checks = [
+            ("vault",   vault_ok,  vault_detail),
+            ("model",   model_ok,  model_detail if model_ok else "not found"),
+            ("memory",  self._wm is not None, "working memory loaded" if self._wm else "unavailable"),
+            ("rag",     rag is not None, "pipeline ready" if rag else "disabled"),
+        ]
+        show_system_check(rc, checks)
+
+        if not self._engine:
+            self._print("  No model found. The setup wizard will help you configure one.")
+            return
 
         # Register weather/news as Brain tools for conversational access
         try:
@@ -137,10 +153,8 @@ class Console:
         # Register all slash commands
         self._register_commands(plugin_mgr=plugin_mgr)
 
-        self._print(
-            f"\nHey{' ' + self._user_name if self._user_name != 'User' else ''}! "
-            f"Type /help for commands or just start chatting.\n"
-        )
+        greeting = get_greeting(self._user_name, len(known_facts))
+        self._print(f"\n{greeting}\n")
 
     def _register_commands(self, **services):
         """Register all slash commands from console/commands/."""
@@ -179,6 +193,17 @@ class Console:
 
         while True:
             try:
+                # Status bar before each prompt
+                model_name = getattr(getattr(self._engine, "entry", None), "name", "") if self._engine else ""
+                memory_count = 0
+                if self._sm:
+                    try:
+                        memory_count = len(self._sm.get_facts(min_confidence=0.5))
+                    except Exception:
+                        pass
+                project = getattr(self._config, "project", "") or ""
+                print_status_bar(rc, model_name=model_name, memory_count=memory_count, project=project)
+
                 if use_prompt_toolkit:
                     user_input = session.prompt(f"{self._user_name}> ").strip()
                 else:
@@ -215,31 +240,35 @@ class Console:
 
     def _chat(self, user_input: str):
         """Send input to brain, stream response."""
+        from rich.live import Live
+        from rich.markdown import Markdown
+        from rich.panel import Panel
+
         try:
             from homie_app.loading import CLILoadingSpinner
 
             spinner = CLILoadingSpinner(style="random")
             spinner.start()
             first_token = True
+            buffer = ""
             try:
-                for token in self._brain.process_stream(user_input):
-                    if first_token:
-                        spinner.stop()
-                        sys.stdout.write("Homie> ")
-                        sys.stdout.flush()
-                        first_token = False
-                    sys.stdout.write(token)
-                    sys.stdout.flush()
+                with Live(console=rc, refresh_per_second=12, transient=False) as live:
+                    for token in self._brain.process_stream(user_input):
+                        if first_token:
+                            spinner.stop()
+                            first_token = False
+                        buffer += token
+                        live.update(Panel(Markdown(buffer), title="[homie.assistant]Homie[/]", border_style="homie.dim"))
             except Exception:
                 if not first_token:
                     raise
                 spinner.stop()
-                sys.stdout.write(f"Homie> {self._brain.process(user_input)}")
-                sys.stdout.flush()
+                response = self._brain.process(user_input)
+                rc.print(Panel(Markdown(response), title="[homie.assistant]Homie[/]", border_style="homie.dim"))
             finally:
                 if first_token:
                     spinner.stop()
-            print("\n")
+            rc.print()
         except ConnectionError as e:
             self._print(f"Homie> Connection failed: {e}\n")
         except Exception as e:
@@ -262,4 +291,4 @@ class Console:
 
     def _print(self, text: str):
         """Print to console. Abstracted for testability."""
-        print(text)
+        rc.print(text)
