@@ -290,6 +290,10 @@ src/homie_core/adaptive_learning/
 │   ├── conversation_miner.py   # Fact/decision/relationship extraction
 │   ├── project_tracker.py      # Project knowledge graph
 │   └── behavioral_profiler.py  # Work pattern learning
+├── customization/
+│   ├── __init__.py
+│   ├── generator.py            # LLM-powered code generation from natural language
+│   └── manager.py              # Customization lifecycle (create/list/modify/disable/rollback)
 └── storage.py                  # Learning memory — SQLite tables, shared access
 ```
 
@@ -351,3 +355,68 @@ adaptive_learning:
 - AdaptiveLearner registers a **learning probe** with HealthWatchdog
 - Recovery strategies: restart engines, clear stale cache, rebuild profiles from signal log
 - `@resilient` decorator on boundary operations (cache writes, LLM extraction calls)
+
+---
+
+## 7. User-Requested Customizations
+
+Users can request customizations in natural language. Homie implements them through full self-modification — generating real code (middleware, tools, hooks, prompt changes) using the self-healing runtime's CodePatcher, ArchitectureEvolver, and RollbackManager.
+
+### Request Flow
+
+1. User describes desired behavior in natural language
+2. Homie's LLM analyzes intent — what condition triggers it, what behavior is desired
+3. LLM generates implementation code (middleware class, tool, prompt modification, scheduled task)
+4. RollbackManager snapshots before modification
+5. ArchitectureEvolver/CodePatcher applies the code
+6. New code registers in the system (hot-reload — middleware stack, tool registry, or scheduler)
+7. Self-healing runtime monitors for regressions → auto-rollback if errors spike
+8. Customization logged to `customization_history`
+
+### What Homie Can Generate
+
+| Request type | Generated code |
+|-------------|---------------|
+| "Greet me with a joke each morning" | New middleware that injects humor prompt on first interaction of the day |
+| "When I say /standup, show git + calendar" | New tool registered in ToolRegistry with slash command |
+| "Always suggest type hints in Python" | Prompt layer addition in PreferenceEngine |
+| "Create a weekly summary of what I worked on" | New scheduled task + tool that aggregates behavioral data |
+| "Analyze my PR review patterns" | New tool + knowledge extraction pipeline |
+
+### Safety
+
+All powered by existing self-healing infrastructure:
+- **RollbackManager** → snapshots before every change
+- **@resilient** → wraps generated code
+- **HealthWatchdog** → monitors for regressions
+- **Auto-rollback** → if error rate spikes after a customization, it's reverted
+- **Core lock** → generated code cannot modify security or rollback systems
+
+### Customization Management
+
+Users manage customizations through natural language:
+- "Show my customizations" → lists all generated customizations with status
+- "Disable the morning joke" → deactivates (doesn't delete — can re-enable)
+- "Change the standup to include PRs" → LLM modifies existing generated code via CodePatcher
+
+### Persistence
+
+- `customization_history` table: request text, generated file paths, status (active/disabled/rolled_back), version_id, creation timestamp
+- Generated files tracked by RollbackManager's evolution log
+- Each customization gets a version ID for rollback
+
+### New Files
+
+```
+src/homie_core/adaptive_learning/
+├── customization/
+│   ├── __init__.py
+│   ├── generator.py           # LLM-powered code generation from natural language requests
+│   └── manager.py             # Customization lifecycle (create/list/modify/disable/rollback)
+```
+
+### Additional SQLite Table
+
+| Table | Purpose |
+|-------|---------|
+| `customization_history` | Request text, generated paths, status, version_id, timestamps |
