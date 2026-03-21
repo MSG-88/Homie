@@ -233,6 +233,12 @@ class ContextConfig(BaseModel):
     arg_truncation_threshold: int = 2000
 
 
+class EmbeddingConfig(BaseModel):
+    model_name: str = "BAAI/bge-base-en-v1.5"
+    dimensions: int = 768
+    batch_size: int = 32
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -249,6 +255,7 @@ class HomieConfig(BaseModel):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
