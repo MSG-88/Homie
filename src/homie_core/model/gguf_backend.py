@@ -70,11 +70,31 @@ class GGUFBackend:
         self._base_url: str = ""
         self._model_path: str = ""
 
+    @staticmethod
+    def _compute_safe_gpu_layers(model_path: str | Path) -> int:
+        """Calculate GPU layers based on model file size and available VRAM."""
+        try:
+            from homie_core.hardware.detector import HardwareDetector
+            from homie_core.hardware.profiles import compute_gpu_layers
+            hw = HardwareDetector()
+            vram = hw.best_gpu_vram_gb
+            if vram <= 0:
+                return 0  # no GPU
+            model_size_gb = Path(model_path).stat().st_size / (1024**3)
+            layers = compute_gpu_layers(model_size_gb, vram)
+            return layers
+        except Exception:
+            return -1  # fallback to full offload attempt
+
     def load(self, model_path: str | Path, n_ctx: int = 16384, n_gpu_layers: int = -1, **kwargs) -> None:
         server_bin = _find_llama_server()
         port = _find_free_port()
         self._base_url = f"http://127.0.0.1:{port}"
         self._model_path = str(model_path)
+
+        # Smart GPU layer calculation when set to full offload (-1)
+        if n_gpu_layers == -1:
+            n_gpu_layers = self._compute_safe_gpu_layers(model_path)
 
         cmd = [
             server_bin,
@@ -88,7 +108,7 @@ class GGUFBackend:
         # GPU-specific optimisations: flash-attention and quantised KV cache
         if n_gpu_layers != 0:
             cmd += [
-                "--flash-attn",
+                "--flash-attn", "on",
                 "--cache-type-k", "q8_0",
                 "--cache-type-v", "q8_0",
             ]
