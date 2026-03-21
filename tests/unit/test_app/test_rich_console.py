@@ -53,8 +53,10 @@ def test_rc_is_rich_console_instance() -> None:
 
 
 def test_rc_uses_homie_theme() -> None:
-    # The theme object stored on the console should contain our custom styles.
-    assert "homie.brand" in rc._theme._theme.styles  # type: ignore[attr-defined]
+    # Verify homie custom styles are resolvable on the console's theme stack.
+    # _theme_stack._entries is the merged dict used by Rich internally.
+    merged = rc._theme_stack._entries[0]  # type: ignore[attr-defined]
+    assert "homie.brand" in merged
 
 
 # ---------------------------------------------------------------------------
