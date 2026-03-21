@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homie-ai"
-version = "0.3.0"
+version = "0.4.0"
 description = "Fully local, privacy-first personal AI assistant with background intelligence"
 readme = "README.md"
 license = "MPL-2.0"
