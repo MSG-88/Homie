@@ -3,6 +3,7 @@ from __future__ import annotations
 from homie_core.middleware.base import HomieMiddleware
 from homie_core.middleware.hooks import HookCallback, HookRegistry, PipelineStage, RetrievalBundle
 from homie_core.middleware.arg_truncation import ArgTruncationMiddleware
+from homie_core.middleware.context_enricher import ContextEnricherMiddleware
 from homie_core.middleware.context_overflow import ContextOverflowRecoveryMiddleware
 from homie_core.middleware.dangling_tool_repair import DanglingToolCallMiddleware
 from homie_core.middleware.edit_conflict import EditConflictMiddleware
@@ -21,6 +22,7 @@ from homie_core.middleware.token_utils import estimate_conversation_tokens, esti
 
 __all__ = [
     "ArgTruncationMiddleware",
+    "ContextEnricherMiddleware",
     "ContextOverflowRecoveryMiddleware",
     "DanglingToolCallMiddleware",
     "EditConflictMiddleware",
