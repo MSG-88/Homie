@@ -15,11 +15,17 @@ def _category_features(category: str) -> list[float]:
 
 
 def _build_features(minutes_in_task: float, switch_freq_10min: float,
-                    minutes_since_interaction: float, category: str) -> list[float]:
+                    minutes_since_interaction: float, category: str,
+                    hour_of_day: float = 12.0,
+                    day_of_week: float = 0.0,
+                    minutes_since_last_accepted: float = 60.0) -> list[float]:
     return [
         min(minutes_in_task / 120.0, 1.0),
         min(switch_freq_10min / 20.0, 1.0),
         min(minutes_since_interaction / 120.0, 1.0),
+        hour_of_day / 23.0,                              # normalised 0-1
+        day_of_week / 6.0,                               # 0=Mon … 6=Sun
+        min(minutes_since_last_accepted / 120.0, 1.0),  # capped at 2 h
     ] + _category_features(category)
 
 
@@ -36,7 +42,7 @@ class InterruptionModel:
     Trained online via SGD. Pure Python, no external deps."""
 
     def __init__(self, threshold: float = 0.7, learning_rate: float = 0.1):
-        n_features = 3 + len(_CATEGORIES)
+        n_features = 6 + len(_CATEGORIES)  # 3 original + hour_of_day + day_of_week + minutes_since_last_accepted
         self._weights = [0.0] * n_features
         self._bias = 0.0
         self._threshold = threshold
@@ -44,25 +50,39 @@ class InterruptionModel:
         self._n_samples = 0
 
     def predict(self, minutes_in_task: float, switch_freq_10min: float,
-                minutes_since_interaction: float, category: str) -> float:
+                minutes_since_interaction: float, category: str,
+                hour_of_day: float = 12.0, day_of_week: float = 0.0,
+                minutes_since_last_accepted: float = 60.0) -> float:
         features = _build_features(minutes_in_task, switch_freq_10min,
-                                   minutes_since_interaction, category)
+                                   minutes_since_interaction, category,
+                                   hour_of_day, day_of_week,
+                                   minutes_since_last_accepted)
         z = self._bias + sum(w * x for w, x in zip(self._weights, features))
         return _sigmoid(z)
 
     def should_interrupt(self, minutes_in_task: float, switch_freq_10min: float,
-                         minutes_since_interaction: float, category: str) -> bool:
+                         minutes_since_interaction: float, category: str,
+                         hour_of_day: float = 12.0, day_of_week: float = 0.0,
+                         minutes_since_last_accepted: float = 60.0) -> bool:
         return self.predict(minutes_in_task, switch_freq_10min,
-                           minutes_since_interaction, category) >= self._threshold
+                            minutes_since_interaction, category,
+                            hour_of_day, day_of_week,
+                            minutes_since_last_accepted) >= self._threshold
 
     def record_feedback(self, accepted: bool, minutes_in_task: float,
                         switch_freq_10min: float, minutes_since_interaction: float,
-                        category: str) -> None:
+                        category: str, hour_of_day: float = 12.0,
+                        day_of_week: float = 0.0,
+                        minutes_since_last_accepted: float = 60.0) -> None:
         features = _build_features(minutes_in_task, switch_freq_10min,
-                                   minutes_since_interaction, category)
+                                   minutes_since_interaction, category,
+                                   hour_of_day, day_of_week,
+                                   minutes_since_last_accepted)
         y = 1.0 if accepted else 0.0
         p = self.predict(minutes_in_task, switch_freq_10min,
-                         minutes_since_interaction, category)
+                         minutes_since_interaction, category,
+                         hour_of_day, day_of_week,
+                         minutes_since_last_accepted)
         error = y - p
         for i in range(len(self._weights)):
             self._weights[i] += self._lr * error * features[i]
