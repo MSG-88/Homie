@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import Optional
 
 from homie_core.config import HomieConfig
+from homie_core.knowledge.graph import KnowledgeGraph
 from homie_core.middleware import MiddlewareStack
+from homie_core.middleware.context_enricher import ContextEnricherMiddleware
 from homie_core.middleware.summarization import SummarizationMiddleware
 from homie_core.middleware.arg_truncation import ArgTruncationMiddleware
 from homie_core.middleware.long_line_split import LongLineSplitMiddleware
@@ -24,6 +26,7 @@ def build_middleware_stack(
     backend: Optional[LocalFilesystemBackend] = None,
     skill_paths: Optional[list[str | Path]] = None,
     memory_paths: Optional[list[str | Path]] = None,
+    knowledge_graph: Optional[KnowledgeGraph] = None,
 ) -> MiddlewareStack:
     """Build the default middleware stack for Homie.
 
@@ -34,6 +37,12 @@ def build_middleware_stack(
         backend = LocalFilesystemBackend(root_dir=config.storage.path)
 
     middleware = [
+        # Phase 1: Intelligence Wiring (context enrichment)
+        *(
+            [ContextEnricherMiddleware(graph=knowledge_graph)]
+            if knowledge_graph is not None
+            else []
+        ),
         # Phase 2: Context Intelligence
         ContextOverflowRecoveryMiddleware(working_memory=working_memory),
         SummarizationMiddleware(config=config, backend=backend, working_memory=working_memory),
