@@ -420,6 +420,25 @@ def _init_watchdog(cfg):
     return wd
 
 
+def _init_adaptive_learner(cfg):
+    """Initialize the adaptive learning engine."""
+    from homie_core.adaptive_learning.learner import AdaptiveLearner
+
+    if not getattr(cfg, 'adaptive_learning', None) or not cfg.adaptive_learning.enabled:
+        return None
+
+    storage_path = Path(cfg.storage.path)
+    al_cfg = cfg.adaptive_learning
+    learner = AdaptiveLearner(
+        db_path=storage_path / "learning.db",
+        learning_rate_explicit=al_cfg.preference.learning_rate_explicit,
+        learning_rate_implicit=al_cfg.preference.learning_rate_implicit,
+        cache_max_entries=al_cfg.performance.cache_max_entries,
+        cache_ttl=al_cfg.performance.cache_ttl_default,
+    )
+    return learner
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point (slim — all interactive commands live in Console)
 # ---------------------------------------------------------------------------

@@ -155,6 +155,25 @@ self_healing:
     - self_healing/improvement/rollback.py
     - self_healing/guardian.py
     - security/
+adaptive_learning:
+  enabled: true
+  preference:
+    learning_rate_explicit: 0.3
+    learning_rate_implicit: 0.05
+    min_signals_for_confidence: 10
+  performance:
+    cache_enabled: true
+    cache_max_entries: 500
+    cache_ttl_default: 86400
+    cache_similarity_threshold: 0.92
+    context_optimization: true
+    resource_scheduling: true
+  knowledge:
+    conversation_mining: true
+    project_tracking: true
+    behavioral_profiling: true
+    scan_interval: 300
+  feedback_loops: true
 user_name: Master
 voice:
   audio_chunk_size: 512

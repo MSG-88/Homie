@@ -217,6 +217,42 @@ class LearningStorage:
             )
         return [dict(row) for row in cursor.fetchall()]
 
+    # --- Customization operations ---
+
+    def write_customization(self, request_text: str, generated_paths: list[str], version_id: str, status: str = "active") -> None:
+        """Record a customization."""
+        if self._conn is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO customization_history (request_text, generated_paths, status, version_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (request_text, json.dumps(generated_paths), status, version_id, time.time(), time.time()),
+            )
+            self._conn.commit()
+
+    def query_customizations(self, status: Optional[str] = None) -> list[dict]:
+        """Query customizations."""
+        if self._conn is None:
+            return []
+        if status:
+            cursor = self._conn.execute(
+                "SELECT * FROM customization_history WHERE status = ? ORDER BY created_at DESC", (status,)
+            )
+        else:
+            cursor = self._conn.execute("SELECT * FROM customization_history ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_customization_status(self, customization_id: int, status: str) -> None:
+        """Update customization status."""
+        if self._conn is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE customization_history SET status = ?, updated_at = ? WHERE id = ?",
+                (status, time.time(), customization_id),
+            )
+            self._conn.commit()
+
     def close(self) -> None:
         """Close database connection."""
         if self._conn:

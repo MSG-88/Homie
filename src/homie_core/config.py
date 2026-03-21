@@ -273,6 +273,36 @@ class SelfHealingConfig(BaseModel):
     ]
 
 
+class PreferenceLearningConfig(BaseModel):
+    learning_rate_explicit: float = 0.3
+    learning_rate_implicit: float = 0.05
+    min_signals_for_confidence: int = 10
+
+
+class PerformanceLearningConfig(BaseModel):
+    cache_enabled: bool = True
+    cache_max_entries: int = 500
+    cache_ttl_default: int = 86400
+    cache_similarity_threshold: float = 0.92
+    context_optimization: bool = True
+    resource_scheduling: bool = True
+
+
+class KnowledgeLearningConfig(BaseModel):
+    conversation_mining: bool = True
+    project_tracking: bool = True
+    behavioral_profiling: bool = True
+    scan_interval: int = 300
+
+
+class AdaptiveLearningConfig(BaseModel):
+    enabled: bool = True
+    preference: PreferenceLearningConfig = Field(default_factory=PreferenceLearningConfig)
+    performance: PerformanceLearningConfig = Field(default_factory=PerformanceLearningConfig)
+    knowledge: KnowledgeLearningConfig = Field(default_factory=KnowledgeLearningConfig)
+    feedback_loops: bool = True
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -291,6 +321,7 @@ class HomieConfig(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     self_healing: SelfHealingConfig = Field(default_factory=SelfHealingConfig)
+    adaptive_learning: AdaptiveLearningConfig = Field(default_factory=AdaptiveLearningConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
