@@ -2,6 +2,7 @@
 import pytest
 from pathlib import Path
 from homie_core.rag.pipeline import RagPipeline, RetrievedContext
+from homie_core.knowledge.graph import KnowledgeGraph
 
 
 # -----------------------------------------------------------------------
@@ -181,6 +182,70 @@ class TestRetrievedContext:
 # -----------------------------------------------------------------------
 # Stats
 # -----------------------------------------------------------------------
+
+# -----------------------------------------------------------------------
+# Knowledge Graph Integration
+# -----------------------------------------------------------------------
+
+class TestKnowledgeGraphIntegration:
+    def test_pipeline_without_kg_works_normally(self, tmp_path):
+        """Existing behaviour is unchanged when knowledge_graph=None."""
+        pipe = RagPipeline()
+        (tmp_path / "main.py").write_text("import os\ndef hello(): pass\n")
+        count = pipe.index_file(tmp_path / "main.py")
+        assert count >= 1
+
+    def test_pipeline_with_kg_extracts_imports(self, tmp_path):
+        """After indexing a Python file, import-based Tool entities appear in the KG."""
+        kg = KnowledgeGraph(tmp_path / "kg.db")
+        pipe = RagPipeline(knowledge_graph=kg)
+        (tmp_path / "script.py").write_text("import numpy\nimport pandas\n")
+        pipe.index_file(tmp_path / "script.py")
+
+        entities = kg.find_entities(entity_type="tool")
+        names = [e.name for e in entities]
+        assert any("numpy" in n for n in names)
+        assert any("pandas" in n for n in names)
+
+    def test_pipeline_with_kg_extracts_emails(self, tmp_path):
+        """Email addresses in indexed files become Person entities in the KG."""
+        kg = KnowledgeGraph(tmp_path / "kg.db")
+        pipe = RagPipeline(knowledge_graph=kg)
+        (tmp_path / "readme.txt").write_text(
+            "Contact support@example.com for help.\n"
+        )
+        pipe.index_file(tmp_path / "readme.txt")
+
+        persons = kg.find_entities(entity_type="person")
+        assert any("support@example.com" in e.name for e in persons)
+
+    def test_pipeline_kg_error_does_not_break_indexing(self, tmp_path):
+        """If the KG raises, index_file should still return chunk count."""
+        class BrokenKG:
+            def merge_entity(self, e):
+                raise RuntimeError("KG failure")
+            def add_relationship(self, r):
+                raise RuntimeError("KG failure")
+
+        pipe = RagPipeline(knowledge_graph=BrokenKG())
+        (tmp_path / "code.py").write_text("import os\n")
+        count = pipe.index_file(tmp_path / "code.py")
+        assert count >= 1
+
+    def test_pipeline_kg_deduplicates_on_reindex(self, tmp_path):
+        """Re-indexing the same file should not duplicate KG entities."""
+        kg = KnowledgeGraph(tmp_path / "kg.db")
+        pipe = RagPipeline(knowledge_graph=kg)
+        f = tmp_path / "module.py"
+        f.write_text("import os\n")
+        pipe.index_file(f)
+        # Force reindex by touching the file with new content
+        f.write_text("import os\nimport sys\n")
+        pipe.index_file(f)
+
+        os_entities = kg.find_entities(name="os", entity_type="tool")
+        assert len(os_entities) == 1  # merge_entity deduplicates
+
 
 class TestStats:
     def test_initial_stats(self):

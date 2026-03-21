@@ -18,7 +18,7 @@ import hashlib
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from homie_core.rag.chunker import Chunk, auto_chunk
 from homie_core.rag.hybrid_search import HybridSearch
@@ -26,6 +26,13 @@ from homie_core.rag.format_detector import detect_format, DocumentFormat
 from homie_core.rag.parsers import PARSER_REGISTRY, ParsedDocument
 # Import all parsers to trigger registration
 import homie_core.rag.parsers.text
+# Knowledge graph integration (optional)
+try:
+    from homie_core.knowledge.graph import KnowledgeGraph as _KnowledgeGraph
+    from homie_core.knowledge.extractor import EntityExtractor as _EntityExtractor
+    _KG_AVAILABLE = True
+except ImportError:
+    _KG_AVAILABLE = False
 import homie_core.rag.parsers.pdf
 import homie_core.rag.parsers.docx
 import homie_core.rag.parsers.xlsx
@@ -95,6 +102,7 @@ class RagPipeline:
         vector_store=None,
         max_chunk_size: int = 1500,
         chunk_overlap: int = 100,
+        knowledge_graph: Optional[Any] = None,
     ):
         self._search = HybridSearch(vector_store=vector_store)
         self._max_chunk_size = max_chunk_size
@@ -104,6 +112,11 @@ class RagPipeline:
         self._file_chunks: dict[str, list[str]] = {}  # file_path -> [chunk_ids]
         self._lock = threading.Lock()
         self._indexed_dirs: set[str] = set()
+        # Optional knowledge graph integration
+        self._knowledge_graph = knowledge_graph
+        self._entity_extractor = (
+            _EntityExtractor(use_model=True) if (_KG_AVAILABLE and knowledge_graph is not None) else None
+        )
 
     # ------------------------------------------------------------------
     # INGEST
@@ -200,6 +213,19 @@ class RagPipeline:
 
             self._file_chunks[path_str] = chunk_ids
             self._file_hashes[path_str] = content_hash
+
+            # Feed extracted entities into the knowledge graph (if configured)
+            if self._knowledge_graph is not None and self._entity_extractor is not None:
+                try:
+                    entities, relationships = self._entity_extractor.extract(
+                        content, source=path_str
+                    )
+                    for entity in entities:
+                        self._knowledge_graph.merge_entity(entity)
+                    for rel in relationships:
+                        self._knowledge_graph.add_relationship(rel)
+                except Exception:
+                    pass  # Knowledge graph errors must never break indexing
 
         return len(chunks)
 
