@@ -1,50 +1,88 @@
+connections:
+  blog:
+    connected: false
+    feed_url: ''
+  facebook:
+    connected: false
+  gmail:
+    connected: false
+  instagram:
+    connected: false
+  linkedin:
+    connected: false
+  phone_link:
+    connected: false
+    read_only: true
+  reddit:
+    connected: false
+  slack:
+    connected: false
+  telegram:
+    connected: false
+  twitter:
+    connected: false
+  whatsapp:
+    connected: false
+    experimental: true
+context:
+  arg_truncation_threshold: 2000
+  large_result_threshold: 80000
+  long_line_threshold: 5000
+  manual_compact_pct: 0.5
+  summarize_keep_pct: 0.1
+  summarize_trigger_pct: 0.85
+embedding:
+  batch_size: 32
+  dimensions: 768
+  model_name: BAAI/bge-base-en-v1.5
+inference:
+  lan:
+    max_latency_ms: 500
+    prefer_desktop: true
+  priority:
+  - local
+  - lan
+  - qubrid
+  qubrid:
+    base_url: https://platform.qubrid.com/v1
+    enabled: true
+    model: Qwen/Qwen3.5-Flash
+    timeout: 30
 llm:
-  model_path: mistralai/Mistral-Small-3.1-24B-Instruct-2503
-  backend: hf
-  context_length: 65536
-  temperature: 0.7
-  max_tokens: 2048
-  gpu_layers: -1
-  repo_id: lmstudio-community/Qwen3.5-35B-A3B-GGUF
-  api_key: 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
   api_base_url: ''
-voice:
-  enabled: false
-  hotkey: ctrl+8
-  wake_word: hey homie
-  mode: hybrid
-  stt_engine: faster-whisper
-  stt_model_fast: tiny.en
-  stt_model_quality: medium
-  stt_language: auto
-  tts_mode: auto
-  tts_voice_fast: piper
-  tts_voice_quality: kokoro
-  tts_voice_multilingual: melo
-  vad_engine: silero
-  vad_threshold: 0.5
-  vad_silence_ms: 300
-  barge_in: true
-  conversation_timeout: 120
-  max_exit_prompts: 3
-  exit_phrases:
-  - goodbye
-  - stop
-  - that's all
-  device: auto
-  audio_sample_rate: 16000
-  audio_chunk_size: 512
-storage:
-  path: C:\Users\muthu\.homie
-  db_name: homie.db
-  chroma_dir: chroma
-  models_dir: models
-  backup_dir: backups
-  log_dir: logs
+  api_key: ''
+  backend: gguf
+  context_length: 65536
+  gpu_layers: -1
+  max_tokens: 2048
+  model_path: C:\Users\muthu\.lmstudio\models\lmstudio-community\Qwen3.5-35B-A3B-GGUF\Qwen3.5-35B-A3B-Q4_K_M.gguf
+  repo_id: lmstudio-community/Qwen3.5-35B-A3B-GGUF
+  temperature: 0.7
+location: null
+network:
+  auto_discover: true
+  enabled: true
+  sync_port: 8765
+  sync_scope: all
+notifications:
+  categories:
+    context_suggestions: true
+    email_digest: true
+    email_priority: true
+    proactive: true
+    social_mentions: true
+    system_alerts: true
+    task_reminders: true
+  dnd_schedule_enabled: false
+  dnd_schedule_end: 07:00
+  dnd_schedule_start: '22:00'
+  enabled: true
+plugins:
+  enabled: []
+  plugin_dirs: []
 privacy:
   data_retention_days: 30
   max_storage_mb: 512
-  screen_reader_consent: false
   observers:
     browsing: false
     emotional: false
@@ -52,30 +90,9 @@ privacy:
     routine: true
     social: false
     work: true
-plugins:
-  enabled: []
-  plugin_dirs: []
-user:
-  name: Master
-  language: en
-  timezone: auto
-  work_hours_start: 09:00
-  work_hours_end: '18:00'
-  work_days:
-  - mon
-  - tue
-  - wed
-  - thu
-  - fri
+  screen_reader_consent: false
 screen_reader:
-  enabled: false
-  level: 1
-  poll_interval_t1: 5
-  poll_interval_t2: 30
-  poll_interval_t3: 60
-  event_driven: true
   analysis_engine: cloud
-  pii_filter: true
   blocklist:
   - '*password*'
   - '*banking*'
@@ -85,69 +102,83 @@ screen_reader:
   - '*KeePass*'
   - '*LastPass*'
   dnd: false
+  enabled: false
+  event_driven: true
+  level: 1
+  pii_filter: true
+  poll_interval_t1: 5
+  poll_interval_t2: 30
+  poll_interval_t3: 60
 service:
-  mode: on_demand
-  start_on_login: false
-  restart_on_failure: true
   max_retries: 3
-notifications:
+  mode: on_demand
+  restart_on_failure: true
+  start_on_login: false
+storage:
+  backup_dir: backups
+  chroma_dir: chroma
+  db_name: homie.db
+  log_dir: logs
+  models_dir: models
+  path: C:\Users\muthu\.homie
+user:
+  language: en
+  name: Master
+  timezone: auto
+  work_days:
+  - mon
+  - tue
+  - wed
+  - thu
+  - fri
+  work_hours_end: '18:00'
+  work_hours_start: 09:00
+self_healing:
   enabled: true
-  categories:
-    context_suggestions: true
-    email_digest: true
-    social_mentions: true
-    system_alerts: true
-    task_reminders: true
-  dnd_schedule_enabled: false
-  dnd_schedule_start: '22:00'
-  dnd_schedule_end: 07:00
-connections:
-  gmail:
-    connected: false
-  twitter:
-    connected: false
-  reddit:
-    connected: false
-  telegram:
-    connected: false
-  slack:
-    connected: false
-  facebook:
-    connected: false
-  instagram:
-    connected: false
-  linkedin:
-    connected: false
-  whatsapp:
-    connected: false
-    experimental: true
-  phone_link:
-    connected: false
-    read_only: true
-  blog:
-    connected: false
-    feed_url: ''
-location:
-  city: Chennai
-  region: ''
-  country: ''
-  timezone: ''
-user_name: Master
-
-# ── Inference routing ──────────────────────────────────────────────────
-inference:
-  priority: [local, lan, qubrid]
-  qubrid:
+  probe_interval: 30
+  critical_probe_interval: 10
+  improvement:
     enabled: true
-    model: "Qwen/Qwen3.5-Flash"
-    # api_key stored in vault or HOMIE_QUBRID_API_KEY env var
-  lan:
-    prefer_desktop: true
-    max_latency_ms: 500
-
-# ── LAN Network ────────────────────────────────────────────────────────
-network:
+    max_mutations_per_day: 10
+    monitoring_window: 300
+    rollback_error_threshold: 0.20
+    rollback_latency_threshold: 0.50
+  recovery:
+    max_tier: 4
+    preemptive: true
+    pattern_threshold: 3
+  health_log:
+    retention_days: 30
+    digest_enabled: true
+  guardian_enabled: true
+  core_lock:
+    - self_healing/improvement/rollback.py
+    - self_healing/guardian.py
+    - security/
+user_name: Master
+voice:
+  audio_chunk_size: 512
+  audio_sample_rate: 16000
+  barge_in: true
+  conversation_timeout: 120
+  device: auto
   enabled: true
-  sync_port: 8765
-  auto_discover: true
-  sync_scope: all  # all, conversations, manual
+  exit_phrases:
+  - goodbye
+  - stop
+  - that's all
+  hotkey: ctrl+8
+  max_exit_prompts: 3
+  mode: push_to_talk
+  stt_engine: faster-whisper
+  stt_language: auto
+  stt_model_fast: tiny.en
+  stt_model_quality: medium
+  tts_mode: auto
+  tts_voice_fast: piper
+  tts_voice_multilingual: melo
+  tts_voice_quality: kokoro
+  vad_engine: silero
+  vad_silence_ms: 300
+  vad_threshold: 0.5
+  wake_word: hey homie

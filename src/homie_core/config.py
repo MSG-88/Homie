@@ -239,6 +239,40 @@ class EmbeddingConfig(BaseModel):
     batch_size: int = 32
 
 
+class ImprovementConfig(BaseModel):
+    enabled: bool = True
+    max_mutations_per_day: int = 10
+    monitoring_window: int = 300
+    rollback_error_threshold: float = 0.20
+    rollback_latency_threshold: float = 0.50
+
+
+class RecoveryConfig(BaseModel):
+    max_tier: int = 4
+    preemptive: bool = True
+    pattern_threshold: int = 3
+
+
+class HealthLogConfig(BaseModel):
+    retention_days: int = 30
+    digest_enabled: bool = True
+
+
+class SelfHealingConfig(BaseModel):
+    enabled: bool = True
+    probe_interval: int = 30
+    critical_probe_interval: int = 10
+    improvement: ImprovementConfig = ImprovementConfig()
+    recovery: RecoveryConfig = RecoveryConfig()
+    health_log: HealthLogConfig = HealthLogConfig()
+    guardian_enabled: bool = True
+    core_lock: list[str] = [
+        "self_healing/improvement/rollback.py",
+        "self_healing/guardian.py",
+        "security/",
+    ]
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -256,6 +290,7 @@ class HomieConfig(BaseModel):
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    self_healing: SelfHealingConfig = Field(default_factory=SelfHealingConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
