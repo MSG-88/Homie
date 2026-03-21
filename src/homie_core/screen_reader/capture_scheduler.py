@@ -8,6 +8,18 @@ from homie_core.screen_reader.pii_filter import PIIFilter
 
 logger = logging.getLogger(__name__)
 
+_ABSOLUTE_BLOCKLIST = frozenset({
+    "1password", "keepassxc", "bitwarden", "lastpass", "dashlane",
+    "incognito", "private browsing", "inprivate",
+    "credential manager", "windows security",
+    "online banking", "net banking",
+})
+
+
+def _is_absolutely_blocked(title: str, process: str) -> bool:
+    combined = (title + " " + process).lower()
+    return any(term in combined for term in _ABSOLUTE_BLOCKLIST)
+
 
 @dataclass
 class ScreenContext:
@@ -43,6 +55,11 @@ class CaptureScheduler:
         window = self._tracker.get_active_window()
 
         if window is None:
+            return self._context
+
+        # Hard security check — block password managers, banking, and private windows
+        # regardless of user configuration.
+        if _is_absolutely_blocked(window.title, window.process_name):
             return self._context
 
         # T1: always track window
