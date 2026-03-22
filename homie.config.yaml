@@ -174,6 +174,21 @@ adaptive_learning:
     behavioral_profiling: true
     scan_interval: 300
   feedback_loops: true
+knowledge_graph:
+  enabled: true
+  intake:
+    surface_pass: true
+    deep_pass: true
+    deep_pass_top_percent: 20
+    max_deep_files_per_batch: 50
+  reasoning:
+    entity_resolution: true
+    relationship_inference: true
+    max_inference_hops: 2
+    inference_batch_interval: 300
+  temporal:
+    confidence_decay_rate: 0.99
+    contradiction_auto_resolve: true
 user_name: Master
 voice:
   audio_chunk_size: 512

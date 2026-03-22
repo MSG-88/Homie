@@ -24,6 +24,7 @@ class AdaptiveLearner:
         learning_rate_implicit: float = 0.05,
         cache_max_entries: int = 500,
         cache_ttl: float = 86400.0,
+        graph_db_path: Optional[Path | str] = None,
     ) -> None:
         self._storage = LearningStorage(db_path=db_path)
         self._storage.initialize()
@@ -39,7 +40,11 @@ class AdaptiveLearner:
             cache_max_entries=cache_max_entries,
             cache_ttl=cache_ttl,
         )
-        self.knowledge_builder = KnowledgeBuilder(storage=self._storage)
+        graph_path = Path(db_path).parent / "knowledge_graph.db" if graph_db_path is None else graph_db_path
+        self.knowledge_builder = KnowledgeBuilder(
+            storage=self._storage,
+            graph_db_path=graph_path,
+        )
 
         # Wire up observation subscriptions
         self.observation_stream.subscribe(

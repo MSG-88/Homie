@@ -303,6 +303,32 @@ class AdaptiveLearningConfig(BaseModel):
     feedback_loops: bool = True
 
 
+class IntakeConfig(BaseModel):
+    surface_pass: bool = True
+    deep_pass: bool = True
+    deep_pass_top_percent: int = 20
+    max_deep_files_per_batch: int = 50
+
+
+class ReasoningConfig(BaseModel):
+    entity_resolution: bool = True
+    relationship_inference: bool = True
+    max_inference_hops: int = 2
+    inference_batch_interval: int = 300
+
+
+class TemporalConfig(BaseModel):
+    confidence_decay_rate: float = 0.99
+    contradiction_auto_resolve: bool = True
+
+
+class KnowledgeGraphConfig(BaseModel):
+    enabled: bool = True
+    intake: IntakeConfig = Field(default_factory=IntakeConfig)
+    reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    temporal: TemporalConfig = Field(default_factory=TemporalConfig)
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -322,6 +348,7 @@ class HomieConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     self_healing: SelfHealingConfig = Field(default_factory=SelfHealingConfig)
     adaptive_learning: AdaptiveLearningConfig = Field(default_factory=AdaptiveLearningConfig)
+    knowledge_graph: KnowledgeGraphConfig = Field(default_factory=KnowledgeGraphConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
