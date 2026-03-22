@@ -121,6 +121,15 @@ class LearningStorage:
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS optimization_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_type TEXT NOT NULL,
+                hardware_fingerprint TEXT NOT NULL,
+                profile_data TEXT NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(query_type, hardware_fingerprint)
+            );
         """)
         self._conn.commit()
 
@@ -252,6 +261,32 @@ class LearningStorage:
                 (status, time.time(), customization_id),
             )
             self._conn.commit()
+
+    # --- Optimization profile operations ---
+
+    def save_optimization_profile(self, query_type: str, hardware_fp: str, data: dict) -> None:
+        """Save or update an optimization profile."""
+        if self._conn is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO optimization_profiles (query_type, hardware_fingerprint, profile_data, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(query_type, hardware_fingerprint) DO UPDATE SET
+                   profile_data = excluded.profile_data, updated_at = excluded.updated_at""",
+                (query_type, hardware_fp, json.dumps(data), time.time()),
+            )
+            self._conn.commit()
+
+    def get_optimization_profile(self, query_type: str, hardware_fp: str) -> Optional[dict]:
+        """Get an optimization profile."""
+        if self._conn is None:
+            return None
+        row = self._conn.execute(
+            "SELECT profile_data FROM optimization_profiles WHERE query_type = ? AND hardware_fingerprint = ?",
+            (query_type, hardware_fp),
+        ).fetchone()
+        return json.loads(row["profile_data"]) if row else None
 
     def close(self) -> None:
         """Close database connection."""
