@@ -295,11 +295,39 @@ class KnowledgeLearningConfig(BaseModel):
     scan_interval: int = 300
 
 
+class PromptOptimizerConfig(BaseModel):
+    deduplication: bool = True
+    relevance_threshold: float = 0.3
+    history_compression: bool = True
+    max_history_turns_default: int = 10
+
+
+class ModelTunerConfig(BaseModel):
+    auto_temperature: bool = True
+    auto_context_length: bool = True
+    auto_gpu_layers: bool = True
+    response_length_learning: bool = True
+
+
+class PipelineGateConfig(BaseModel):
+    gating_enabled: bool = True
+    self_correcting: bool = True
+    promotion_threshold: int = 3
+
+
+class SelfOptimizerConfig(BaseModel):
+    enabled: bool = True
+    prompt: PromptOptimizerConfig = Field(default_factory=PromptOptimizerConfig)
+    model: ModelTunerConfig = Field(default_factory=ModelTunerConfig)
+    pipeline: PipelineGateConfig = Field(default_factory=PipelineGateConfig)
+
+
 class AdaptiveLearningConfig(BaseModel):
     enabled: bool = True
     preference: PreferenceLearningConfig = Field(default_factory=PreferenceLearningConfig)
     performance: PerformanceLearningConfig = Field(default_factory=PerformanceLearningConfig)
     knowledge: KnowledgeLearningConfig = Field(default_factory=KnowledgeLearningConfig)
+    self_optimizer: SelfOptimizerConfig = Field(default_factory=SelfOptimizerConfig)
     feedback_loops: bool = True
 
 

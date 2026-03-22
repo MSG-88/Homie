@@ -173,6 +173,22 @@ adaptive_learning:
     project_tracking: true
     behavioral_profiling: true
     scan_interval: 300
+  self_optimizer:
+    enabled: true
+    prompt:
+      deduplication: true
+      relevance_threshold: 0.3
+      history_compression: true
+      max_history_turns_default: 10
+    model:
+      auto_temperature: true
+      auto_context_length: true
+      auto_gpu_layers: true
+      response_length_learning: true
+    pipeline:
+      gating_enabled: true
+      self_correcting: true
+      promotion_threshold: 3
   feedback_loops: true
 knowledge_graph:
   enabled: true
