@@ -283,6 +283,99 @@ class GmailProvider(EmailProvider):
         ).execute()
         return Label(id=result["id"], name=result["name"], type=result.get("type", "user"))
 
+    def get_thread(self, thread_id):
+        raise NotImplementedError
+
+    def list_threads(self, query, max_results=20):
+        raise NotImplementedError
+
+    def get_inbox_threads(self, start=0, max_results=20):
+        raise NotImplementedError
+
+    def get_starred_threads(self, start=0, max_results=20):
+        raise NotImplementedError
+
+    def get_spam_threads(self, start=0, max_results=20):
+        raise NotImplementedError
+
+    def get_trash_threads(self, start=0, max_results=20):
+        raise NotImplementedError
+
+    def get_unread_count(self, label="INBOX"):
+        raise NotImplementedError
+
+    def archive_thread(self, thread_id):
+        raise NotImplementedError
+
+    def trash_thread(self, thread_id):
+        raise NotImplementedError
+
+    def apply_label_to_thread(self, thread_id, label_id):
+        raise NotImplementedError
+
+    def mark_thread_read(self, thread_id):
+        raise NotImplementedError
+
+    def mark_thread_unread(self, thread_id):
+        raise NotImplementedError
+
+    def list_drafts(self, max_results=20):
+        raise NotImplementedError
+
+    def get_draft(self, draft_id):
+        raise NotImplementedError
+
+    def update_draft(self, draft_id, to, subject, body, cc=None, bcc=None):
+        raise NotImplementedError
+
+    def delete_draft(self, draft_id):
+        raise NotImplementedError
+
+    def send_email(self, to, subject, body, cc=None, bcc=None, attachments=None, reply_to_message_id=None):
+        raise NotImplementedError
+
+    def send_draft(self, draft_id):
+        raise NotImplementedError
+
+    def reply(self, message_id, body, send=False):
+        raise NotImplementedError
+
+    def reply_all(self, message_id, body, send=False):
+        raise NotImplementedError
+
+    def forward(self, message_id, to, body, send=False):
+        raise NotImplementedError
+
+    def get_attachments(self, message_id):
+        raise NotImplementedError
+
+    def download_attachment(self, message_id, attachment_id, save_path):
+        raise NotImplementedError
+
+    def get_aliases(self):
+        raise NotImplementedError
+
+    def star(self, message_id):
+        raise NotImplementedError
+
+    def unstar(self, message_id):
+        raise NotImplementedError
+
+    def mark_unread(self, message_id):
+        raise NotImplementedError
+
+    def move_to_inbox(self, message_id):
+        raise NotImplementedError
+
+    def delete_label(self, label_id):
+        raise NotImplementedError
+
+    def update_label(self, label_id, new_name):
+        raise NotImplementedError
+
+    def untrash(self, message_id):
+        raise NotImplementedError
+
     # --- Internal helpers ---
 
     def _fetch_and_parse(self, message_id: str) -> EmailMessage:
