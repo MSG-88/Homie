@@ -17,11 +17,11 @@ class Entity:
 
     entity_type must be one of:
         person, project, concept, tool, document, task, event,
-        location, snippet, goal
+        location, snippet, goal, organization
     """
 
     name: str
-    entity_type: str  # person, project, concept, tool, document, task, event, location, snippet, goal
+    entity_type: str  # person, project, concept, tool, document, task, event, location, snippet, goal, organization
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     attributes: dict = field(default_factory=dict)
     confidence: float = 1.0
@@ -38,11 +38,12 @@ class Relationship:
 
     relation must be one of:
         authored, works_on, mentions, depends_on, contains, related_to,
-        uses, supports, child_of, has_fact
+        uses, supports, child_of, has_fact, works_with, reports_to,
+        client_of, contacted
     """
 
     subject_id: str
-    relation: str  # authored, works_on, mentions, depends_on, contains, related_to, uses, supports, child_of, has_fact
+    relation: str  # authored, works_on, mentions, depends_on, contains, related_to, uses, supports, child_of, has_fact, works_with, reports_to, client_of, contacted
     object_id: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     confidence: float = 1.0
