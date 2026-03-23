@@ -501,28 +501,48 @@ class GmailProvider(EmailProvider):
         return file_path
 
     def get_aliases(self):
-        raise NotImplementedError
+        self._check_token_freshness()
+        result = self._service.users().settings().sendAs().list(userId="me").execute()
+        return [a["sendAsEmail"] for a in result.get("sendAs", [])]
 
     def star(self, message_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().messages().modify(
+            userId="me", id=message_id, body={"addLabelIds": ["STARRED"]},
+        ).execute()
 
     def unstar(self, message_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().messages().modify(
+            userId="me", id=message_id, body={"removeLabelIds": ["STARRED"]},
+        ).execute()
 
     def mark_unread(self, message_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().messages().modify(
+            userId="me", id=message_id, body={"addLabelIds": ["UNREAD"]},
+        ).execute()
 
     def move_to_inbox(self, message_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().messages().modify(
+            userId="me", id=message_id, body={"addLabelIds": ["INBOX"]},
+        ).execute()
 
     def delete_label(self, label_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().labels().delete(userId="me", id=label_id).execute()
 
     def update_label(self, label_id, new_name):
-        raise NotImplementedError
+        self._check_token_freshness()
+        result = self._service.users().labels().update(
+            userId="me", id=label_id, body={"name": new_name},
+        ).execute()
+        return Label(id=result["id"], name=result["name"], type=result.get("type", "user"))
 
     def untrash(self, message_id):
-        raise NotImplementedError
+        self._check_token_freshness()
+        self._service.users().messages().untrash(userId="me", id=message_id).execute()
 
     def _build_mime_with_attachments(self, to, subject, body, cc, bcc, file_paths, reply_to_message_id=None):
         """Build multipart MIME message with file attachments."""

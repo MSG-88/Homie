@@ -348,3 +348,70 @@ class TestGmailProviderAttachments:
         save_dir = str(tmp_path / "attachments")
         path = provider.download_attachment("msg1", "att1", save_dir)
         assert os.path.exists(path)
+
+
+class TestGmailProviderMisc:
+    def test_star(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.star("msg1")
+        service.users().messages().modify.assert_called()
+
+    def test_unstar(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.unstar("msg1")
+        service.users().messages().modify.assert_called()
+
+    def test_mark_unread(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.mark_unread("msg1")
+        service.users().messages().modify.assert_called()
+
+    def test_move_to_inbox(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.move_to_inbox("msg1")
+        service.users().messages().modify.assert_called()
+
+    def test_untrash(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.untrash("msg1")
+        service.users().messages().untrash.assert_called()
+
+    def test_get_aliases(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        service.users().settings().sendAs().list().execute.return_value = {
+            "sendAs": [
+                {"sendAsEmail": "user@gmail.com"},
+                {"sendAsEmail": "alias@gmail.com"},
+            ],
+        }
+        aliases = provider.get_aliases()
+        assert len(aliases) == 2
+
+    def test_delete_label(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        provider.delete_label("Label_1")
+        service.users().labels().delete.assert_called()
+
+    def test_update_label(self):
+        provider = GmailProvider(account_id="user@gmail.com")
+        service = _mock_service()
+        provider._service = service
+        service.users().labels().update().execute.return_value = {
+            "id": "Label_1", "name": "NewName", "type": "user",
+        }
+        label = provider.update_label("Label_1", "NewName")
+        assert label.name == "NewName"
