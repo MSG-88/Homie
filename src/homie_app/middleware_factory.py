@@ -27,6 +27,7 @@ def build_middleware_stack(
     skill_paths: Optional[list[str | Path]] = None,
     memory_paths: Optional[list[str | Path]] = None,
     knowledge_graph: Optional[KnowledgeGraph] = None,
+    observation_stream=None,
 ) -> MiddlewareStack:
     """Build the default middleware stack for Homie.
 
@@ -55,6 +56,11 @@ def build_middleware_stack(
         # Phase 4: Safety & Control
         ShellAllowlistMiddleware(),
     ]
+
+    # Adaptive Learning (observation layer — runs late, after other middleware)
+    if observation_stream is not None:
+        from homie_core.adaptive_learning.observation.learning_middleware import LearningMiddleware
+        middleware.append(LearningMiddleware(observation_stream=observation_stream))
 
     # Phase 5: Extensibility (optional — paths may be None)
     if skill_paths:
