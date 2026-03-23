@@ -88,6 +88,7 @@ class EmailThread:
     last_message_date: float
     snippet: str
     labels: list[str] = field(default_factory=list)
+    messages: list[EmailMessage] = field(default_factory=list)
 
 
 @dataclass
@@ -137,3 +138,49 @@ class SyncResult:
     trashed_messages: int = 0
     notifications: list[EmailMessage] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class EmailDraft:
+    """A draft email with metadata."""
+    id: str
+    message: EmailMessage
+    updated_at: float
+
+
+@dataclass
+class EmailAttachment:
+    """An email attachment with optional downloaded data."""
+    id: str
+    message_id: str
+    filename: str
+    mime_type: str
+    size: int  # bytes
+    data: bytes | None = None  # populated on download
+
+
+@dataclass
+class ContactInsight:
+    """Aggregated contact intelligence from email patterns."""
+    email: str
+    name: str
+    organization: str
+    relationship: str  # "colleague", "client", "vendor", etc.
+    email_count: int
+    last_contact: float
+    topics: list[str]
+    pending_actions: list[str]
+
+
+@dataclass
+class ActionItem:
+    """An action item extracted from an email."""
+    id: str
+    message_id: str
+    thread_id: str
+    description: str
+    assignee: str
+    deadline: float | None
+    urgency: str  # "high", "medium", "low"
+    status: str  # "pending", "done", "expired"
+    extracted_at: float
