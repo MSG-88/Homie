@@ -34,6 +34,13 @@ class EmailIndexer:
         Returns stats dict:
             {"indexed": int, "entities_created": int, "relationships_created": int}
         """
+        import warnings
+        warnings.warn(
+            "EmailIndexer.index_recent() is deprecated. "
+            "Use homie_core.email.knowledge_extractor.EmailKnowledgeExtractor instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         stats: dict[str, int] = {
             "indexed": 0,
             "entities_created": 0,

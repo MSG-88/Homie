@@ -9,7 +9,7 @@ class HITLMiddleware(HomieMiddleware):
 
     def __init__(self, gated_tools: set[str] | None = None):
         """gated_tools: set of tool names requiring approval. Default: {'run_command', 'write_file'}"""
-        self._gated = gated_tools or {"run_command", "write_file"}
+        self._gated = gated_tools or {"run_command", "write_file", "email_send", "email_send_draft", "email_reply", "email_reply_all", "email_forward"}
         self._auto_approved: set[str] = set()  # tools the user has auto-approved
 
     def wrap_tool_call(self, name: str, args: dict) -> dict | None:
