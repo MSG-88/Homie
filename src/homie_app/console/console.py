@@ -34,6 +34,8 @@ class Console:
         self._em = None
         self._engine = None
         self._vault = None
+        self._learner = None
+        self._watchdog = None
         self._user_name = getattr(config, "user_name", None) or "User"
 
         if not skip_init:
@@ -93,11 +95,47 @@ class Console:
         from homie_app.cli import _init_intelligence_stack
         self._wm, self._em, self._sm, tool_registry, rag, plugin_mgr = _init_intelligence_stack(self._config)
 
+        # Initialize adaptive learner
+        learner_ok = False
+        learner_detail = "disabled"
+        try:
+            from homie_app.cli import _init_adaptive_learner
+            self._learner = _init_adaptive_learner(self._config)
+            if self._learner:
+                self._learner.start()
+                learner_ok = True
+                learner_detail = "active"
+                print("  [+] Adaptive learner active")
+            else:
+                learner_detail = "disabled by config"
+        except Exception as e:
+            learner_detail = str(e)
+            print(f"  [-] Adaptive learner unavailable: {e}")
+
+        # Initialize self-healing watchdog
+        watchdog_ok = False
+        watchdog_detail = "disabled"
+        try:
+            from homie_app.cli import _init_watchdog
+            self._watchdog = _init_watchdog(self._config)
+            if self._watchdog:
+                self._watchdog.start()
+                watchdog_ok = True
+                watchdog_detail = "monitoring"
+                print("  [+] Health watchdog monitoring")
+            else:
+                watchdog_detail = "disabled by config"
+        except Exception as e:
+            watchdog_detail = str(e)
+            print(f"  [-] Health watchdog unavailable: {e}")
+
         checks = [
             ("vault",   vault_ok,  vault_detail),
             ("model",   model_ok,  model_detail if model_ok else "not found"),
             ("memory",  self._wm is not None, "working memory loaded" if self._wm else "unavailable"),
             ("rag",     rag is not None, "pipeline ready" if rag else "disabled"),
+            ("learner", learner_ok, learner_detail),
+            ("watchdog", watchdog_ok, watchdog_detail),
         ]
         show_system_check(rc, checks)
 
@@ -124,6 +162,7 @@ class Console:
             config=self._config,
             working_memory=self._wm,
             backend=backend,
+            observation_stream=self._learner.observation_stream if self._learner else None,
         )
 
         self._brain = BrainOrchestrator(
@@ -148,6 +187,17 @@ class Console:
             user_name=self._user_name,
             known_facts=known_facts if known_facts else None,
         )
+
+        # Inject adaptive learning preference layer into system prompt
+        if self._learner:
+            try:
+                from datetime import datetime
+                pref_layer = self._learner.get_prompt_layer(hour=datetime.now().hour)
+                if pref_layer:
+                    system_prompt = system_prompt + "\n\n" + pref_layer
+            except Exception:
+                pass
+
         self._brain.set_system_prompt(system_prompt)
 
         # Register all slash commands
@@ -172,6 +222,8 @@ class Console:
             "em": self._em,
             "engine": self._engine,
             "vault": self._vault,
+            "learner": self._learner,
+            "watchdog": self._watchdog,
             "_router": self._router,
             "console": self,
             **services,
@@ -361,6 +413,30 @@ class Console:
                 ))
             rc.print()
 
+            # Feed the adaptive learner after each turn
+            if self._learner and buffer:
+                try:
+                    self._learner.process_turn(user_input, buffer, state={})
+                    # Refresh the preference prompt layer for next turn
+                    from datetime import datetime
+                    pref_layer = self._learner.get_prompt_layer(hour=datetime.now().hour)
+                    if pref_layer and self._brain:
+                        from homie_app.prompts.system import build_system_prompt
+                        known_facts = []
+                        if self._sm:
+                            try:
+                                facts = self._sm.get_facts(min_confidence=0.5)
+                                known_facts = [f["fact"] for f in facts[:10]]
+                            except Exception:
+                                pass
+                        base_prompt = build_system_prompt(
+                            user_name=self._user_name,
+                            known_facts=known_facts if known_facts else None,
+                        )
+                        self._brain.set_system_prompt(base_prompt + "\n\n" + pref_layer)
+                except Exception:
+                    pass  # Learning is non-critical
+
         except ConnectionError as e:
             self._print(f"Homie> Connection failed: {e}\n")
         except Exception as e:
@@ -378,6 +454,16 @@ class Console:
                     self._print("  Nothing to save.")
             except Exception:
                 self._print("  Could not save session.")
+        if self._learner:
+            try:
+                self._learner.stop()
+            except Exception:
+                pass
+        if self._watchdog:
+            try:
+                self._watchdog.stop()
+            except Exception:
+                pass
         if self._engine:
             self._engine.unload()
 
