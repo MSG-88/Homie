@@ -453,6 +453,264 @@ class EmailService:
             "action_detail": "LLM unavailable — cannot analyze",
         }
 
+    # ── Thread operations ────────────────────────────────────────────
+
+    def get_thread_messages(self, thread_id: str, account: str | None = None):
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                return provider.get_thread(thread_id)
+            except Exception:
+                continue
+        return None
+
+    def list_inbox_threads(self, account: str | None = None, start: int = 0,
+                           max_results: int = 20) -> list:
+        threads = []
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                threads.extend(provider.get_inbox_threads(start, max_results))
+            except Exception:
+                pass
+        return threads[:max_results]
+
+    def list_starred_threads(self, account: str | None = None, start: int = 0,
+                             max_results: int = 20) -> list:
+        threads = []
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                threads.extend(provider.get_starred_threads(start, max_results))
+            except Exception:
+                pass
+        return threads[:max_results]
+
+    def list_spam_threads(self, account: str | None = None, start: int = 0,
+                          max_results: int = 20) -> list:
+        threads = []
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                threads.extend(provider.get_spam_threads(start, max_results))
+            except Exception:
+                pass
+        return threads[:max_results]
+
+    def get_unread_counts(self, account: str | None = None) -> dict:
+        totals = {"inbox": 0, "spam": 0, "starred": 0, "total": 0}
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                inbox = provider.get_unread_count("INBOX")
+                spam = provider.get_unread_count("SPAM")
+                starred = provider.get_unread_count("STARRED")
+                totals["inbox"] += inbox
+                totals["spam"] += spam
+                totals["starred"] += starred
+                totals["total"] += inbox + spam
+            except Exception:
+                pass
+        return totals
+
+    # ── Draft management ─────────────────────────────────────────────
+
+    def list_drafts(self, account: str | None = None) -> list:
+        drafts = []
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                drafts.extend(provider.list_drafts())
+            except Exception:
+                pass
+        return drafts
+
+    def get_draft(self, draft_id: str, account: str | None = None):
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                return provider.get_draft(draft_id)
+            except Exception:
+                continue
+        return None
+
+    def update_draft(self, draft_id: str, to: str, subject: str, body: str,
+                     account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.update_draft(draft_id, to, subject, body)
+        return ""
+
+    def delete_draft(self, draft_id: str, account: str | None = None) -> None:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                provider.delete_draft(draft_id)
+                return
+            except Exception:
+                continue
+
+    # ── Send / Reply / Forward ───────────────────────────────────────
+
+    def send_email(self, to: str, subject: str, body: str,
+                   cc: list[str] | None = None, bcc: list[str] | None = None,
+                   attachments: list[str] | None = None,
+                   account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.send_email(to, subject, body, cc, bcc, attachments)
+        return ""
+
+    def send_draft(self, draft_id: str, account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.send_draft(draft_id)
+        return ""
+
+    def reply(self, message_id: str, body: str, send: bool = False,
+              account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.reply(message_id, body, send)
+        return ""
+
+    def reply_all(self, message_id: str, body: str, send: bool = False,
+                  account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.reply_all(message_id, body, send)
+        return ""
+
+    def forward(self, message_id: str, to: str, body: str, send: bool = False,
+                account: str | None = None) -> str:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            return provider.forward(message_id, to, body, send)
+        return ""
+
+    # ── Attachments ──────────────────────────────────────────────────
+
+    def get_attachments(self, message_id: str, account: str | None = None) -> list:
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                return provider.get_attachments(message_id)
+            except Exception:
+                continue
+        return []
+
+    def download_attachment(self, message_id: str, attachment_id: str,
+                            save_path: str | None = None,
+                            account: str | None = None) -> str:
+        from pathlib import Path
+        base = Path.home() / ".homie" / "attachments"
+        if save_path:
+            resolved = Path(save_path).resolve()
+            if not str(resolved).startswith(str(base.resolve())):
+                return ""
+            target = str(resolved)
+        else:
+            target = str(base / message_id)
+        for acct_id, provider in self._providers.items():
+            if account and acct_id != account:
+                continue
+            try:
+                return provider.download_attachment(message_id, attachment_id, target)
+            except Exception:
+                continue
+        return ""
+
+    # ── Knowledge & Insights ─────────────────────────────────────────
+
+    def get_contact_insights(self, email_or_name: str):
+        try:
+            row = self._conn.execute(
+                "SELECT email, name, organization, relationship, email_count, "
+                "last_contact, topics, entity_id FROM email_contacts "
+                "WHERE email=? OR name LIKE ?",
+                (email_or_name, f"%{email_or_name}%"),
+            ).fetchone()
+        except Exception:
+            return None
+        if not row:
+            return None
+        from homie_core.email.models import ContactInsight
+        try:
+            actions = self._conn.execute(
+                "SELECT description FROM email_action_items WHERE assignee=? AND status='pending'",
+                (row[0],),
+            ).fetchall()
+        except Exception:
+            actions = []
+        return ContactInsight(
+            email=row[0], name=row[1] or "", organization=row[2] or "",
+            relationship=row[3] or "", email_count=row[4] or 0,
+            last_contact=row[5] or 0.0,
+            topics=json.loads(row[6] or "[]"),
+            pending_actions=[a[0] for a in actions],
+        )
+
+    def get_pending_actions(self) -> list:
+        from homie_core.email.models import ActionItem
+        try:
+            rows = self._conn.execute(
+                "SELECT id, message_id, thread_id, description, assignee, deadline, "
+                "urgency, status, extracted_at FROM email_action_items "
+                "WHERE status='pending' ORDER BY deadline ASC NULLS LAST",
+            ).fetchall()
+        except Exception:
+            return []
+        return [
+            ActionItem(id=r[0], message_id=r[1], thread_id=r[2] or "",
+                       description=r[3], assignee=r[4] or "", deadline=r[5],
+                       urgency=r[6] or "medium", status=r[7], extracted_at=r[8] or 0.0)
+            for r in rows
+        ]
+
+    def get_topic_summary(self, topic: str) -> str:
+        try:
+            row = self._conn.execute(
+                "SELECT thread_ids, message_count FROM email_topics WHERE name LIKE ?",
+                (f"%{topic}%",),
+            ).fetchone()
+        except Exception:
+            return f"No email threads found for topic '{topic}'"
+        if not row:
+            return f"No email threads found for topic '{topic}'"
+        thread_ids = json.loads(row[0] or "[]")
+        return f"Topic '{topic}': {row[1]} messages across {len(thread_ids)} threads"
+
+    def get_email_insights(self, days: int = 1) -> str:
+        """Generate intelligence briefing combining digest + pending actions."""
+        try:
+            digest = self.get_intelligent_digest(days=days)
+            if isinstance(digest, str):
+                return digest
+            return json.dumps(digest)
+        except (AttributeError, Exception):
+            summary = self.get_summary(days=days)
+            actions = self.get_pending_actions()
+            result = {**summary, "pending_actions": [
+                {"description": a.description, "urgency": a.urgency, "deadline": a.deadline}
+                for a in actions[:10]
+            ]}
+            return json.dumps(result)
+
     def _load_config(self, account_id: str) -> EmailSyncConfig:
         """Load sync config from cache.db."""
         row = self._conn.execute(
