@@ -77,6 +77,14 @@ def test_chat_no_inference(mock_email):
     assert "No inference" in resp.json()["response"]
 
 
+def test_chat_page_returns_html(client):
+    resp = client.get("/chat", cookies={"homie_session": "test-token"})
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "<html" in resp.text
+    assert "Chat" in resp.text
+
+
 def test_email_search(client):
     resp = client.post("/api/email/search", json={"query": "deploy"}, cookies={"homie_session": "test-token"})
     assert resp.status_code == 200

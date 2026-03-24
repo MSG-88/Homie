@@ -18,6 +18,13 @@ def test_briefing_callback_invoked():
     on_briefing.assert_called_once()
 
 
+def test_chat_callback_invoked():
+    on_chat = MagicMock()
+    tray = TrayApp(on_open_chat=on_chat)
+    tray._chat_clicked()
+    on_chat.assert_called_once()
+
+
 def test_tray_accepts_unread_count():
     tray = TrayApp()
     tray.update_unread_count(5)

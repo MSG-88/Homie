@@ -155,12 +155,17 @@ class DesktopCompanion:
             url = f"http://127.0.0.1:{self._port}/briefing"
             webbrowser.open(url)
 
+        def open_chat():
+            url = f"http://127.0.0.1:{self._port}/chat"
+            webbrowser.open(url)
+
         def on_quit():
             self._running = False
 
         self._tray = TrayApp(
             on_open_briefing=open_briefing,
             on_open_dashboard=open_briefing,
+            on_open_chat=open_chat,
             on_quit=on_quit,
         )
 

@@ -144,6 +144,15 @@ def create_dashboard_app(
             api_port=port,
         )
 
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat_page_route(request: Request):
+        _check_auth(request)
+        from homie_app.tray.chat_page import render_chat_page
+        return render_chat_page(
+            session_token=session_token or "",
+            api_port=8721,
+        )
+
     @app.post("/api/email/mark-read/{message_id}")
     def mark_read(message_id: str, request: Request):
         _check_auth(request)
