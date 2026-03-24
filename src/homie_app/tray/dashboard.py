@@ -22,6 +22,7 @@ def create_dashboard_app(
     suggestion_engine=None,
     email_service=None,
     session_token: str | None = None,
+    inference_router=None,
 ):
     if not _HAS_FASTAPI:
         raise ImportError(
@@ -149,5 +150,92 @@ def create_dashboard_app(
         if email_service:
             email_service.mark_read(message_id)
         return {"status": "ok"}
+
+    # ---- chat ----
+    chat_history: list[dict] = []
+
+    @app.post("/api/chat")
+    async def chat(request: Request):
+        _check_auth(request)
+        body = await request.json()
+        user_message = body.get("message", "").strip()
+        if not user_message:
+            return {"error": "Empty message"}
+
+        # Build email context
+        email_context = ""
+        if email_service:
+            try:
+                summary = email_service.get_summary(days=1)
+                email_context = f"\n\nEmail context: {summary.get('unread', 0)} unread emails, {len(summary.get('high_priority', []))} high priority."
+                # Add recent high priority subjects
+                for hp in summary.get("high_priority", [])[:3]:
+                    email_context += f"\n- {hp.get('subject', '')} from {hp.get('sender', '')}"
+            except Exception:
+                pass
+
+        # Build conversation for the model
+        system = f"You are Homie, a privacy-first local AI assistant. All data stays on this device. Be helpful, concise, and direct.{email_context}"
+
+        # Build prompt with recent history (last 10 turns)
+        recent = chat_history[-10:]
+        prompt_parts = [f"System: {system}"]
+        for turn in recent:
+            role = "User" if turn["role"] == "user" else "Homie"
+            prompt_parts.append(f"{role}: {turn['content']}")
+        prompt_parts.append(f"User: {user_message}")
+        prompt_parts.append("Homie:")
+        prompt = "\n\n".join(prompt_parts)
+
+        # Generate response
+        response_text = ""
+        if inference_router:
+            try:
+                response_text = inference_router.generate(
+                    prompt, max_tokens=1024, temperature=0.7,
+                )
+            except Exception as e:
+                response_text = f"Inference unavailable: {e}"
+        else:
+            response_text = "No inference engine configured. Connect a local model via Ollama or configure cloud fallback."
+
+        # Store in history
+        chat_history.append({"role": "user", "content": user_message})
+        chat_history.append({"role": "assistant", "content": response_text})
+
+        return {
+            "response": response_text,
+            "source": getattr(inference_router, "active_source", "none") if inference_router else "none",
+        }
+
+    @app.get("/api/chat/history")
+    def get_chat_history(request: Request):
+        _check_auth(request)
+        return {"messages": chat_history[-50:]}
+
+    @app.delete("/api/chat/history")
+    def clear_chat_history(request: Request):
+        _check_auth(request)
+        chat_history.clear()
+        return {"status": "ok"}
+
+    # ---- email action routes ----
+
+    @app.post("/api/email/search")
+    async def email_search(request: Request):
+        _check_auth(request)
+        if not email_service:
+            return {"results": []}
+        body = await request.json()
+        query = body.get("query", "")
+        results = email_service.search(query, max_results=10)
+        return {"results": [{"id": m.id, "subject": m.subject, "sender": m.sender, "snippet": m.snippet, "date": m.date} for m in results]}
+
+    @app.get("/api/email/read/{message_id}")
+    def email_read(message_id: str, request: Request):
+        _check_auth(request)
+        if not email_service:
+            return {"error": "Email not configured"}
+        return email_service.read_message(message_id)
 
     return app

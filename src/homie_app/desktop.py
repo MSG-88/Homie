@@ -31,6 +31,7 @@ class DesktopCompanion:
         self._config_path = config_path
         self._config = None
         self._email_service = None
+        self._inference_router = None
         self._vault = None
         self._tray = None
         self._server_thread: Optional[threading.Thread] = None
@@ -57,6 +58,9 @@ class DesktopCompanion:
 
         # Email service
         self._init_email()
+
+        # Inference
+        self._init_inference()
 
         # Start FastAPI server
         self._start_server()
@@ -90,6 +94,22 @@ class DesktopCompanion:
         except Exception as e:
             print(f"  Email: {e}")
 
+    def _init_inference(self) -> None:
+        """Initialize inference router for chat."""
+        try:
+            from homie_core.inference.router import InferenceRouter
+            from homie_core.model.engine import ModelEngine
+
+            engine = ModelEngine(config=self._config.llm)
+            self._inference_router = InferenceRouter(
+                config=self._config,
+                model_engine=engine,
+            )
+            source = self._inference_router.active_source
+            print(f"  Inference: {source}")
+        except Exception as e:
+            print(f"  Inference: not available ({e})")
+
     def _start_server(self) -> None:
         """Start FastAPI on a background thread."""
         from homie_app.tray.dashboard import create_dashboard_app
@@ -98,6 +118,7 @@ class DesktopCompanion:
             config=self._config,
             email_service=self._email_service,
             session_token=self._session_token,
+            inference_router=self._inference_router,
         )
 
         def run_server():
