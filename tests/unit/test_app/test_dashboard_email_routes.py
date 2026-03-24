@@ -84,6 +84,19 @@ def test_email_digest(client):
     assert "digest" in data
 
 
+def test_briefing_page_returns_html(client):
+    resp = client.get("/briefing", cookies={"homie_session": "test-token-123"})
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "<html" in resp.text
+
+
+def test_mark_read_calls_service(client, mock_email_service):
+    resp = client.post("/api/email/mark-read/msg123", cookies={"homie_session": "test-token-123"})
+    assert resp.status_code == 200
+    mock_email_service.mark_read.assert_called_once_with("msg123")
+
+
 def test_health_no_auth_required(client):
     resp = client.get("/api/health")
     assert resp.status_code == 200
