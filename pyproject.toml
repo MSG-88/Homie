@@ -117,7 +117,15 @@ docs = [
     "beautifulsoup4>=4.12",
 ]
 ocr = ["easyocr>=1.7"]
-all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service,inference,network,keyring-linux,docs,ocr]"]
+finetune = [
+    "unsloth>=2024.12",
+    "peft>=0.13",
+    "trl>=0.12",
+    "bitsandbytes>=0.43",
+    "llama-cpp-python>=0.3",
+    "psutil>=5.9",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service,inference,network,keyring-linux,docs,ocr,finetune]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
