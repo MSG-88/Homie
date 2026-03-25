@@ -76,7 +76,8 @@ class BenchmarkSuite:
 
             auto_score = _run_automated_checks(response, case.automated_checks)
             judge_raw = self._judge_fn(response, case.judge_criteria)
-            combined = 0.6 * auto_score + 0.4 * judge_raw
+            judge_normalized = (judge_raw - 1.0) / 4.0  # normalize 1-5 → 0-1
+            combined = 0.6 * auto_score + 0.4 * judge_normalized
 
             case_results.append({
                 "name": case.name,

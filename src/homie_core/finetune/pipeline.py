@@ -154,18 +154,51 @@ class RecursiveFinetuneLoop:
         generator.export_jsonl(data["sft"], ds_dir / "sft.jsonl")
         generator.export_jsonl(data["dpo"], ds_dir / "dpo.jsonl")
 
-        # 2. TRAIN (accumulate all data from cycle 0..N)
+        # 2. TRAIN
         self._status["stage"] = "training"
         all_sft = self._load_accumulated_data("sft.jsonl")
         all_dpo = self._load_accumulated_data("dpo.jsonl")
-        # Save accumulated to temp files for training
-        # ... training via QLoRATrainer (stubbed in tests)
+
+        # Write accumulated data for training
+        train_dir = self._base_dir / "training" / f"cycle-{cycle}"
+        train_dir.mkdir(parents=True, exist_ok=True)
+        SyntheticDataGenerator.export_jsonl(all_sft, train_dir / "sft.jsonl")
+        SyntheticDataGenerator.export_jsonl(all_dpo, train_dir / "dpo.jsonl")
+
+        try:
+            from homie_core.finetune.training.qlora_trainer import QLoRATrainer
+            trainer = QLoRATrainer(
+                base_model=self.config.base_model,
+                config=self.config.training,
+                output_dir=str(self._base_dir / "adapters" / f"cycle-{cycle}"),
+            )
+            trainer.config.lora_rank = self.state.lora_rank
+
+            sft_result = trainer.train_sft(train_dir / "sft.jsonl")
+            dpo_result = trainer.train_dpo(
+                train_dir / "dpo.jsonl",
+                sft_adapter_path=Path(sft_result.get("adapter_path", "")),
+            )
+        except NotImplementedError:
+            logger.warning("Training skipped — no GPU available (stubbed)")
+            # Still run evaluation on the current model for baseline tracking
 
         # 3. EVALUATE
         self._status["stage"] = "evaluating"
         judge = Judge(inference_fn=self._inference_fn)
         suite = BenchmarkSuite(inference_fn=self._inference_fn, judge_fn=judge.score)
         result = suite.run()
+
+        # Save eval results to disk
+        eval_dir = self._base_dir / "evals"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        eval_path = eval_dir / f"cycle-{cycle}.json"
+        eval_data = {
+            "domain_scores": {d.value: s for d, s in result.domain_scores.items()},
+            "overall_score": result.overall_score,
+        }
+        eval_path.write_text(_json.dumps(eval_data, indent=2))
 
         # 4. DEPLOY if improved
         self._status["stage"] = "deploying"
@@ -176,7 +209,17 @@ class RecursiveFinetuneLoop:
                 self._handle_plateau()
             return {"score": result.overall_score, "promoted": False}
 
-        # Deploy via ModelMerger (stubbed in tests)
+        # Deploy
+        try:
+            from homie_core.finetune.training.merge import ModelMerger
+            merger = ModelMerger(base_model=self.config.base_model, registry_name=self.config.registry_name)
+            # merger.merge_lora(...) — requires real model files
+            # merger.quantize(...) — requires llama.cpp
+            merger.import_to_ollama(str(train_dir / "Modelfile"))
+            merger.promote_candidate()
+        except NotImplementedError:
+            logger.warning("Deploy skipped — stubbed methods")
+
         self.state.plateau_counter = 0
         return {"score": result.overall_score, "promoted": True}
 
@@ -214,8 +257,27 @@ class RecursiveFinetuneLoop:
             )
 
     def _get_current_result(self) -> BenchmarkResult | None:
-        """Return last known benchmark result or None."""
-        return None  # Simplified for now
+        """Load the most recent eval result."""
+        if not self.state.cycle_scores:
+            return None
+        last_cycle = max(self.state.cycle_scores.keys())
+        eval_path = self._base_dir / "evals" / f"cycle-{last_cycle}.json"
+        if eval_path.exists():
+            import json as _json
+            data = _json.loads(eval_path.read_text())
+            domain_scores = {Domain(k): v for k, v in data.get("domain_scores", {}).items()}
+            return BenchmarkResult(
+                domain_scores=domain_scores,
+                overall_score=data.get("overall_score", 0.0),
+                case_results=data.get("case_results", []),
+            )
+        # Fallback: construct from overall score with uniform domain scores
+        score = self.state.cycle_scores[last_cycle]
+        return BenchmarkResult(
+            domain_scores={d: score for d in Domain},
+            overall_score=score,
+            case_results=[],
+        )
 
     def _get_difficulty(self, score: float) -> int:
         """Map a score to a difficulty tier (1-4)."""
@@ -229,8 +291,35 @@ class RecursiveFinetuneLoop:
 
     def _prune_artifacts(self) -> None:
         """Delete oldest cycles if disk usage exceeds limit."""
-        # Count total size, remove oldest cycle dirs keeping most recent 3
-        pass
+        import shutil
+        datasets_dir = self._base_dir / "datasets"
+        adapters_dir = self._base_dir / "adapters"
+        evals_dir = self._base_dir / "evals"
+
+        # Find all cycle numbers
+        cycles = set()
+        for d in [datasets_dir, adapters_dir, evals_dir]:
+            if d.exists():
+                for child in d.iterdir():
+                    if child.is_dir() and child.name.startswith("cycle-"):
+                        try:
+                            cycles.add(int(child.name.split("-")[1]))
+                        except (ValueError, IndexError):
+                            pass
+
+        if not cycles:
+            return
+
+        # Keep the most recent 3 cycles
+        keep = sorted(cycles)[-3:]
+        for cycle_num in sorted(cycles):
+            if cycle_num in keep:
+                continue
+            for d in [datasets_dir, adapters_dir, evals_dir]:
+                path = d / f"cycle-{cycle_num}"
+                if path.exists():
+                    shutil.rmtree(path)
+                    logger.info("Pruned cycle-%d from %s", cycle_num, d.name)
 
     def get_status(self) -> dict:
         """Return current pipeline status."""

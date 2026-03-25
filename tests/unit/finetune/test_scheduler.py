@@ -81,13 +81,22 @@ class TestFinetuneScheduler:
     # ── should_interrupt ─────────────────────────────────────────────
 
     @patch("homie_core.finetune.scheduler._get_idle_minutes", return_value=2)
+    @patch("homie_core.finetune.scheduler._get_gpu_vram_usage", return_value=10.0)
     @patch("homie_core.finetune.scheduler._get_cpu_usage", return_value=70.0)
-    def test_should_interrupt_on_user_activity(self, _cpu, _idle):
+    def test_should_interrupt_on_user_activity(self, _cpu, _gpu, _idle):
         sched = self._make_scheduler()
         assert sched.should_interrupt() is True
 
     @patch("homie_core.finetune.scheduler._get_idle_minutes", return_value=30)
+    @patch("homie_core.finetune.scheduler._get_gpu_vram_usage", return_value=10.0)
     @patch("homie_core.finetune.scheduler._get_cpu_usage", return_value=20.0)
-    def test_should_not_interrupt_when_idle_and_low_cpu(self, _cpu, _idle):
+    def test_should_not_interrupt_when_idle_and_low_cpu(self, _cpu, _gpu, _idle):
         sched = self._make_scheduler()
         assert sched.should_interrupt() is False
+
+    @patch("homie_core.finetune.scheduler._get_idle_minutes", return_value=30)
+    @patch("homie_core.finetune.scheduler._get_gpu_vram_usage", return_value=90.0)
+    @patch("homie_core.finetune.scheduler._get_cpu_usage", return_value=20.0)
+    def test_should_interrupt_on_high_gpu_vram(self, _cpu, _gpu, _idle):
+        sched = self._make_scheduler()
+        assert sched.should_interrupt() is True

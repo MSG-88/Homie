@@ -151,12 +151,12 @@ class EvolutionEngine:
             "benchmark_scores": benchmark.scores,
         }
 
-    def evolve_finetune(self, base_dir: str | Path | None = None) -> dict:
+    def evolve_finetune(self, config: "FinetuneConfig | None" = None, base_dir: str | Path | None = None) -> dict:
         """Run recursive finetuning pipeline (long-running, call from scheduler)."""
         from homie_core.finetune.pipeline import RecursiveFinetuneLoop
         from homie_core.finetune.config import FinetuneConfig
 
-        cfg = FinetuneConfig()
+        cfg = config or FinetuneConfig()
         if base_dir is None:
             base_dir = Path.home() / ".homie" / "finetune"
         loop = RecursiveFinetuneLoop(

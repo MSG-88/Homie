@@ -33,7 +33,7 @@ _BASE_WEIGHTS: dict[Domain, float] = {
 }
 
 # Exponential backoff delays for teacher retries
-_BACKOFF_DELAYS = (1, 5, 15)
+_BACKOFF_DELAYS = (60, 300, 900)  # 1min, 5min, 15min
 
 # Minimum rate-limit interval between cloud API calls (seconds)
 _RATE_LIMIT_INTERVAL = 6.0

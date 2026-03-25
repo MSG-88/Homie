@@ -89,7 +89,8 @@ class FinetuneScheduler:
         return not self.is_business_hours() or self.is_system_idle()
 
     def should_interrupt(self) -> bool:
-        """True if CPU > 60% or user recently active."""
+        """True if CPU > 60%, user recently active, or GPU VRAM > 80%."""
         cpu = _get_cpu_usage()
         idle = _get_idle_minutes()
-        return cpu > 60.0 or idle < 5
+        gpu = _get_gpu_vram_usage()
+        return cpu > 60.0 or idle < 5 or gpu > 80.0

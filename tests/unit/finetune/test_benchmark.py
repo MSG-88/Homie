@@ -36,7 +36,7 @@ class TestBenchmarkSuite:
 
     def test_run_returns_result(self):
         inference_fn = MagicMock(return_value="Hello, I'm Homie, your desktop assistant.")
-        judge_fn = MagicMock(return_value=0.8)
+        judge_fn = MagicMock(return_value=4)  # 1-5 scale, normalized to 0.75
         suite = BenchmarkSuite(inference_fn=inference_fn, judge_fn=judge_fn)
         result = suite.run()
         assert isinstance(result, BenchmarkResult)
