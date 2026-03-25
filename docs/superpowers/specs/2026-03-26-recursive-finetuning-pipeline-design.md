@@ -8,6 +8,35 @@
 
 A fully local, recursive self-improving finetuning pipeline for the Homie personal AI assistant model (`PyMasters/Homie`). The pipeline generates synthetic training data (zero user data), finetunes via QLoRA, evaluates against a comprehensive benchmark suite, and loops — each cycle targeting weak areas with harder data — until performance plateaus.
 
+### Base Model
+
+The finetuning base model is `lfm2` (14GB, the same model backing `PyMasters/Homie` on Ollama). The project also uses `GLM-4.7-Flash` (18GB) as the local inference model — these serve different purposes. The finetuning pipeline operates exclusively on `lfm2` because it is the Ollama-registered model that gets pushed to the registry. The inference router may serve either model depending on configuration.
+
+### Registry Note
+
+The Ollama registry was renamed from `MSG-88/Homie` to `PyMasters/Homie` on 2026-03-26 when the Ollama account username changed. All references in this spec use the new name. The old `MSG-88/Homie` registry entry is abandoned. Tests referencing the old name should be updated during implementation.
+
+### Minimum GPU Requirement
+
+**Target:** NVIDIA GPU with >= 12GB VRAM (RTX 3060 12GB or better).
+
+| Stage | VRAM Usage | Notes |
+|-------|-----------|-------|
+| Data generation | ~0 GPU | Uses cloud API for teacher |
+| QLoRA training (lfm2 14B, 4-bit) | ~10-12 GB | With unsloth optimizations |
+| Evaluation (inference) | ~8 GB | Single model loaded, 4-bit |
+| Merge + quantize | ~10 GB | Peak during merge, then drops |
+
+If VRAM is insufficient at runtime, the pipeline will: (1) reduce batch size to 1, (2) enable CPU offloading for optimizer states, (3) if still OOM, abort cycle with a clear error and skip to next idle window.
+
+### Platform Note (Windows)
+
+The target environment is Windows 11. Key considerations:
+- `unsloth` requires WSL2 on Windows. The pipeline detects the OS and runs training inside WSL2 if on Windows, falling back to native `peft` if WSL2 is unavailable.
+- `bitsandbytes >= 0.43` has native Windows support. Pin this version.
+- GGUF conversion uses `llama.cpp` binary (pre-built Windows release or WSL2).
+- Idle detection uses `ctypes` + `GetLastInputInfo` on Windows for keyboard/mouse monitoring.
+
 The model is optimized for 6 capability domains in priority order:
 1. Intent Understanding (A) — 25%
 2. Personal Context Reasoning (C) — 20%
@@ -55,6 +84,22 @@ A cross-cutting behavior — **Proactive Information Gathering** — is woven in
 - Modelfile-level updates remain fast for preference/knowledge changes.
 - Finetune cycles run less frequently when sufficient data accumulates.
 
+**DataCurator Integration:** The existing `DataCurator` (collects real interaction SFT/DPO data) and the new `SyntheticDataGenerator` are complementary sources. The training pipeline merges both:
+- Synthetic data: primary source (no user data constraint applies to synthetic).
+- DataCurator data: excluded from finetuning by default (respects the "no user data" rule). If the user explicitly opts in via config (`finetune.data.include_curated: true`), curated data is mixed at a 70/30 synthetic/curated ratio.
+
+**ModelValidator Coexistence:** The existing 5-prompt `ModelValidator` remains active for Modelfile-level `evolve()`. The new 30-test benchmark suite (`finetune/evaluation/benchmark.py`) is used exclusively by the finetune pipeline. They share no state and can run independently.
+
+**Concurrent Model Access:** During deployment, the pipeline uses a staging name `PyMasters/Homie:candidate` for import and validation. Only after validation passes does it atomically swap: `ollama cp PyMasters/Homie:candidate PyMasters/Homie:latest`. This prevents mid-conversation model replacement.
+
+**Teacher Dependency & Fallback:** If cloud APIs are unavailable during data generation:
+1. Retry 3 times with exponential backoff (1min, 5min, 15min).
+2. If still unavailable, use the current local model as a weaker teacher (self-play mode). Quality filter threshold increases from 4 to 5 to compensate.
+3. If local teacher also unavailable, defer the cycle to the next idle window.
+- Rate limiting: generation is throttled to 10 requests/minute to avoid cloud API limits. Expected time for 3,000 examples: ~5 hours.
+
+**Stacked QLoRA Drift Prevention:** Training always starts from the **original base model** (`lfm2`), not from the previous cycle's merged weights. Each cycle accumulates all data from cycles 0..N and trains from scratch. This prevents compounding quality degradation across cycles. Trade-off: training time grows with each cycle, but the dataset is small enough (~3K examples × 10 max cycles = 30K max) that this remains feasible locally.
+
 ---
 
 ## 1. Synthetic Data Generation
@@ -96,6 +141,14 @@ Synthetic templates that teach anticipatory behavior:
 - **Anticipatory follow-up** — model identifies and addresses the likely next question
 - **Information triage** — model selects 2-3 most relevant pieces from 10 available for the current query
 - **Context restraint** — model receives lots of context but user asks something simple, must not over-share
+
+### Data Format
+
+SFT and DPO data use ChatML format (`{system, user, assistant}` / `{system, user, chosen, rejected}`). The existing `DataCurator` uses Alpaca format (`{instruction, input, output}`). The training module includes a format adapter that converts Alpaca → ChatML at load time if curated data is opted in.
+
+### Quality Filter Minimums
+
+If quality filtering drops a domain below 50% of its target allocation, the generator retries that domain with relaxed constraints (up to 3 retries). If still insufficient, a warning is logged and the cycle proceeds with available data — the evaluation will catch any domain regression.
 
 ### Target Per Cycle
 
@@ -240,7 +293,7 @@ Scheduler checks every 30 minutes:
 - Analyze previous eval → identify weakest domain
 - Generate new data: 40% targeting weak domain, 60% balanced
 - Increase difficulty for domains scoring > 0.8
-- Train SFT → DPO from previous cycle's merged weights
+- Train SFT → DPO **from original base lfm2** using accumulated data (cycles 0..N)
 - Evaluate against current active model
 - If improved > 2% → deploy, continue
 - If plateau × 3 → escalate LoRA rank or stop
@@ -270,9 +323,16 @@ Scheduler checks every 30 minutes:
 ### Safety Rails
 
 - Max 10 cycles hard cap
-- Max 50GB disk for finetune artifacts (auto-prune oldest)
+- Max 50GB disk for finetune artifacts — prune strategy: delete oldest **complete cycle** (dataset + adapter + eval), keeping the most recent 3 cycles and the current active adapter always. Merged GGUF files are ephemeral (deleted after Ollama import).
 - Safety domain < 0.85 → abort + rollback
 - Training only starts after 30+ min continuous idle
+
+### Observability
+
+- **Status query:** `FinetuneScheduler.get_status()` returns current stage, cycle number, percent complete, ETA, and last eval scores. Exposed via `/api/finetune/status` endpoint and tray menu.
+- **Structured logging:** Each stage logs duration, data counts, scores, and errors to `~/.homie/finetune/logs/cycle-{N}.log`.
+- **Desktop notification:** On cycle completion (pass/fail) and on pipeline convergence (plateau stop).
+- **Dashboard integration:** Training status card on the Homie dashboard showing cycle progress and domain score trends.
 
 ---
 
@@ -307,6 +367,8 @@ Uses `BehavioralProfiler` hourly patterns:
 
 ## 7. Configuration
 
+`FinetuneConfig` pydantic model (in `src/homie_core/finetune/config.py`) is added to `HomieConfig` as `finetune: FinetuneConfig = Field(default_factory=FinetuneConfig)`.
+
 New config section in `homie.config.yaml`:
 
 ```yaml
@@ -336,6 +398,7 @@ finetune:
     dpo_per_cycle: 1000
     min_quality_score: 4
     weak_domain_boost: 0.4
+    include_curated: false  # opt-in to mix DataCurator data (user data)
   evaluation:
     promotion_threshold: 0.02
     max_regression_per_domain: 0.05
