@@ -1,4 +1,6 @@
-def build_system_prompt(user_name: str = "Master", time_of_day: str = "", known_facts: list[str] | None = None) -> str:
+def build_system_prompt(user_name: str = "Master", time_of_day: str = "",
+                       known_facts: list[str] | None = None,
+                       email_context: str = "") -> str:
     """Build a dynamic, personality-rich system prompt for Homie."""
     # Time-aware greeting context
     if not time_of_day:
@@ -69,6 +71,7 @@ You are not a generic chatbot. You are {user_name}'s dedicated AI companion. You
 ## Time Context
 {time_personality.get(time_of_day, "Be helpful and natural.")}
 {facts_section}
+{email_context}
 
 ## Response Style
 - Lead with the answer, then explain if needed
