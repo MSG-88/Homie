@@ -189,7 +189,7 @@ class QLoRATrainer:
             save_total_limit=2,
             bf16=True,
             optim="adamw_8bit",
-            max_seq_length=min(self.config.max_seq_length, 2048),  # Cap for VRAM
+            max_length=min(self.config.max_seq_length, 2048),  # Cap for VRAM
             dataset_text_field="text",
             report_to="none",
         )
