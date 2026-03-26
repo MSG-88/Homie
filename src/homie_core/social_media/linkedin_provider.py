@@ -1,4 +1,14 @@
-"""LinkedIn social media provider — feed, profile, publish (no DM)."""
+"""LinkedIn social media provider — profile via OpenID, feed/publish via Community API.
+
+Current scopes: openid, profile, email, w_member_social.
+- OpenID userinfo (/v2/userinfo) — always works for profile data.
+- REST API (/rest/*) — requires Community Management API product enabled
+  in the LinkedIn Developer Portal. Without it, feed/publish return empty.
+- v2 unversioned (/v2/me, /v2/ugcPosts) — deprecated, requires legacy products.
+
+To enable full functionality, add the "Community Management API" product
+at https://www.linkedin.com/developers/apps → Products tab.
+"""
 from __future__ import annotations
 
 import logging
@@ -17,6 +27,10 @@ from homie_core.social_media.provider import (
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.linkedin.com/v2"
+REST_URL = "https://api.linkedin.com/rest"
+USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
+# LinkedIn API version for /rest endpoints (YYYYMM format)
+API_VERSION = "202503"
 
 
 class LinkedInProvider(SocialMediaProviderBase, FeedProvider, ProfileProvider, PublishProvider):
@@ -38,17 +52,35 @@ class LinkedInProvider(SocialMediaProviderBase, FeedProvider, ProfileProvider, P
     # ------------------------------------------------------------------
 
     def connect(self, credential) -> bool:
-        """Store token, call ``/me`` to verify, and cache person URN."""
+        """Store token, call userinfo to verify, and cache person URN."""
         try:
             self._token = credential.access_token
-            resp = self._call("GET", "/me")
-            self._person_id = resp.get("id")
+            # Try OpenID userinfo first (works with openid+profile scopes)
+            try:
+                info = self._userinfo()
+                self._person_id = info.get("sub")
+                self._userinfo_cache = info
+            except Exception:
+                # Fall back to legacy /me endpoint
+                resp = self._call("GET", "/me")
+                self._person_id = resp.get("id")
+                self._userinfo_cache = None
             self._connected = True
             return True
         except Exception:
             logger.exception("Failed to connect LinkedIn")
             self._connected = False
             return False
+
+    def _userinfo(self) -> dict:
+        """Fetch OpenID Connect userinfo (name, email, picture, sub)."""
+        resp = requests.get(
+            USERINFO_URL,
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ------------------------------------------------------------------
     # Internal HTTP helper
@@ -61,17 +93,28 @@ class LinkedInProvider(SocialMediaProviderBase, FeedProvider, ProfileProvider, P
         params: dict | None = None,
         json_body: dict | None = None,
         retries: int = 2,
+        versioned: bool = False,
     ) -> dict:
         """Issue an authenticated request to the LinkedIn API.
 
         Automatically retries on 429 (rate-limit) responses up to *retries*
         times with a 1-second back-off.
+
+        If *versioned* is True, uses the /rest base URL with LinkedIn-Version header.
+        Otherwise uses the legacy /v2 base URL with X-Restli-Protocol-Version.
         """
-        url = f"{BASE_URL}{path}"
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "X-Restli-Protocol-Version": "2.0.0",
-        }
+        if versioned:
+            url = f"{REST_URL}{path}"
+            headers = {
+                "Authorization": f"Bearer {self._token}",
+                "LinkedIn-Version": API_VERSION,
+            }
+        else:
+            url = f"{BASE_URL}{path}"
+            headers = {
+                "Authorization": f"Bearer {self._token}",
+                "X-Restli-Protocol-Version": "2.0.0",
+            }
 
         for attempt in range(retries + 1):
             resp = requests.request(
@@ -98,47 +141,92 @@ class LinkedInProvider(SocialMediaProviderBase, FeedProvider, ProfileProvider, P
     # ------------------------------------------------------------------
 
     def get_feed(self, limit: int = 20) -> list[SocialPost]:
-        data = self._call("GET", "/feed", params={"count": limit})
+        """Fetch the user's feed posts.
+
+        Requires Community Management API product. Returns empty list
+        if the product is not enabled.
+        """
+        try:
+            # Try versioned API first (Community Management)
+            data = self._call(
+                "GET", "/posts",
+                params={
+                    "q": "author",
+                    "author": f"urn:li:person:{self._person_id}",
+                    "count": limit,
+                },
+                versioned=True,
+            )
+        except Exception:
+            try:
+                # Fall back to legacy v2
+                data = self._call("GET", "/ugcPosts", params={
+                    "q": "authors",
+                    "authors": f"List(urn:li:person:{self._person_id})",
+                    "count": limit,
+                })
+            except Exception:
+                logger.warning("LinkedIn feed unavailable — Community Management API not enabled")
+                return []
+
         posts: list[SocialPost] = []
         for item in data.get("elements", []):
+            content = item.get("commentary", "")
+            if not content:
+                # Legacy UGC format
+                content = (item.get("specificContent", {})
+                          .get("com.linkedin.ugc.ShareContent", {})
+                          .get("shareCommentary", {}).get("text", ""))
             posts.append(
                 SocialPost(
                     id=item.get("id", ""),
                     platform="linkedin",
                     author=item.get("author", ""),
-                    content=item.get("text", ""),
-                    timestamp=item.get("created", {}).get("time", 0.0),
-                    likes=item.get("likes", 0),
-                    comments=item.get("comments", 0),
-                    shares=item.get("shares", 0),
+                    content=content,
+                    timestamp=item.get("createdAt", item.get("created", {}).get("time", 0.0)),
+                    likes=item.get("likeCount", 0),
+                    comments=item.get("commentCount", 0),
+                    shares=item.get("shareCount", 0),
                 )
             )
         return posts
 
     def search_posts(self, query: str, limit: int = 10) -> list[SocialPost]:
-        data = self._call(
-            "GET",
-            "/search/blended",
-            params={"q": "content", "keywords": query, "count": limit},
-        )
-        posts: list[SocialPost] = []
-        for item in data.get("elements", []):
-            posts.append(
-                SocialPost(
-                    id=item.get("id", ""),
-                    platform="linkedin",
-                    author=item.get("author", ""),
-                    content=item.get("text", ""),
-                    timestamp=item.get("created", {}).get("time", 0.0),
-                )
-            )
-        return posts
+        """Search posts — requires Community Management API product."""
+        logger.info("LinkedIn post search requires Community Management API")
+        return []
 
     # ------------------------------------------------------------------
     # ProfileProvider
     # ------------------------------------------------------------------
 
     def get_profile(self, username: str | None = None) -> ProfileInfo:
+        """Fetch the authenticated user's profile.
+
+        Uses cached OpenID userinfo when available, falls back to the
+        legacy ``/me`` endpoint for richer fields.
+        """
+        # Try OpenID userinfo (available with openid+profile+email scopes)
+        info = getattr(self, "_userinfo_cache", None)
+        if info is None:
+            try:
+                info = self._userinfo()
+            except Exception:
+                info = None
+
+        if info:
+            display_name = info.get("name", "")
+            email = info.get("email", "")
+            return ProfileInfo(
+                platform="linkedin",
+                username=info.get("sub", ""),
+                display_name=display_name,
+                bio=email,
+                avatar_url=info.get("picture"),
+                profile_url=f"https://www.linkedin.com/in/{username}" if username else None,
+            )
+
+        # Legacy v2 /me fallback
         data = self._call(
             "GET",
             "/me",
