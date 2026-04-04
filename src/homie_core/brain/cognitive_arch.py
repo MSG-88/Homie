@@ -41,6 +41,16 @@ from homie_core.security.injection_detector import sanitize_external_content
 from homie_core.security.redact import redact_sensitive_text
 from homie_core.rag.pipeline import RagPipeline
 
+import logging
+import time as _time
+logger = logging.getLogger(__name__)
+
+try:
+    from homie_core.meta_learning import StrategySelector as _MLS, MetaPerformanceTracker as _MLP, get_strategy_by_name as _mlg
+    _META_LEARNING_AVAILABLE = True
+except ImportError:
+    _META_LEARNING_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Query complexity classification
@@ -285,6 +295,11 @@ class CognitiveArchitecture:
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
         )
+        self._strategy_selector = strategy_selector if _META_LEARNING_AVAILABLE else None
+        self._perf_tracker = performance_tracker if _META_LEARNING_AVAILABLE else None
+        self._auto_tuner = auto_tuner if _META_LEARNING_AVAILABLE else None
+        self._last_mo = {}
+
         # Conversation meta-tracking
         self._topic_history: list[str] = []
         self._user_engagement: float = 0.5  # 0=disengaged, 1=highly engaged
@@ -548,7 +563,7 @@ class CognitiveArchitecture:
                 used += len(project_section)
 
         # 10. Response guidance based on user state + persona
-        guidance = self._generate_response_guidance(complexity, awareness)
+        guidance = self._generate_response_guidance(complexity, awareness, meta_overrides)
         if guidance:
             parts.append(f"\n[GUIDANCE]\n{guidance}")
 
@@ -557,11 +572,39 @@ class CognitiveArchitecture:
 
         return "\n".join(parts)
 
+
+    def _select_meta_strategy(self, query, complexity):
+        if not self._strategy_selector: return {}
+        try:
+            tt = "general"; q = query.lower()
+            if any(k in q for k in ("code","function","debug","implement","class")): tt = "code_generation"
+            elif any(k in q for k in ("search","find","research","article")): tt = "research"
+            elif complexity in (QueryComplexity.TRIVIAL, QueryComplexity.SIMPLE): tt = "conversation"
+            s = self._strategy_selector.select_reasoning_strategy(tt, {"complexity": complexity})
+            if not s: return {}
+            ov = s.apply(query, {"complexity": complexity})
+            ov["_task_type"], ov["_strategy_name"] = tt, s.name
+            return ov
+        except: logger.warning("Meta strategy selection failed", exc_info=True); return {}
+
+    def _record_meta_outcome(self, query, response, duration_ms, success):
+        ov = self._last_mo
+        if not ov or not self._strategy_selector: return
+        try:
+            sn = ov.get("_strategy_name",""); so = _mlg(sn) if _META_LEARNING_AVAILABLE else None
+            if so:
+                q = min(1.0, len(response)/500.0)
+                self._strategy_selector.record_outcome(task_type=ov.get("_task_type","general"), strategy=so, success=success, metrics={"duration_ms":duration_ms,"quality":q,"satisfaction":0.5})
+            if self._perf_tracker: self._perf_tracker.record_task(task_type=ov.get("_task_type","general"), duration_ms=duration_ms, success=success, quality_score=min(1.0,len(response)/500.0), strategy_key=sn)
+            if self._auto_tuner and sn: self._auto_tuner.record_param_outcome("temperature", success)
+        except: logger.warning("Meta outcome recording failed", exc_info=True)
+
     def _generate_response_guidance(
-        self, complexity: str, awareness: SituationalAwareness
+        self, complexity: str, awareness: SituationalAwareness, meta_overrides=None,
     ) -> str:
         """Generate response style guidance based on user's cognitive state and persona."""
         hints = []
+        meta_overrides = meta_overrides or {}
 
         # Specialist persona guidance (replaces simple activity hints)
         persona_hint = get_persona_guidance(
@@ -571,8 +614,10 @@ class CognitiveArchitecture:
         if persona_hint:
             hints.append(persona_hint)
 
-        # Chain-of-thought for complex queries
-        if complexity in (QueryComplexity.COMPLEX, QueryComplexity.DEEP):
+        mg = meta_overrides.get("guidance")
+        if mg:
+            hints.append(mg)
+        elif complexity in (QueryComplexity.COMPLEX, QueryComplexity.DEEP):
             hints.append(
                 "This is a complex question. Think step by step: "
                 "1) Identify what's being asked, 2) Consider the key factors, "
@@ -698,8 +743,10 @@ class CognitiveArchitecture:
 
         adjustments = self._reflect_on_response(user_input, complexity, awareness)
         adjustments = self._hooks.emit(PipelineStage.REFLECTED, adjustments)
-        temperature = adjustments.get("temperature", budget_cfg["temperature"])
-
+        temperature = adjustments.get('temperature', meta_overrides.get('temperature', budget_cfg['temperature']))
+        if meta_overrides.get('max_tokens_factor'):
+            budget_cfg = dict(budget_cfg) if not isinstance(budget_cfg, dict) else budget_cfg
+            budget_cfg['max_tokens'] = int(budget_cfg['max_tokens'] * meta_overrides['max_tokens_factor'])
         return prompt, budget_cfg, temperature
 
     def _track_conversation_meta(self, user_input: str) -> None:
@@ -736,6 +783,7 @@ class CognitiveArchitecture:
         self._track_conversation_meta(user_input)
 
         # Stages 1-5: Perceive, Classify, Retrieve, Reason, Reflect
+        t0 = _time.monotonic()
         prompt, budget_cfg, temperature = self._prepare_prompt(user_input)
         max_tokens = budget_cfg["max_tokens"]
 
