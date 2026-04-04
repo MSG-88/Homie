@@ -37,6 +37,7 @@ class BrainOrchestrator:
         tool_registry: Optional[ToolRegistry] = None,
         rag_pipeline: Optional[RagPipeline] = None,
         middleware_stack: Optional[MiddlewareStack] = None,
+        knowledge_graph=None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -46,7 +47,7 @@ class BrainOrchestrator:
         self._middleware = middleware_stack or MiddlewareStack()
         self._hooks = HookRegistry()
 
-        # Wire up the cognitive architecture with tools + learning + RAG
+        # Wire up the cognitive architecture with tools + learning + RAG + knowledge graph
         self._cognitive = CognitiveArchitecture(
             model_engine=model_engine,
             working_memory=working_memory,
@@ -56,6 +57,7 @@ class BrainOrchestrator:
             tool_registry=tool_registry,
             rag_pipeline=rag_pipeline,
             hooks=self._hooks,
+            knowledge_graph=knowledge_graph,
         )
 
     @property
