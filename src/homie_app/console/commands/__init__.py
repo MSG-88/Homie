@@ -31,6 +31,8 @@ def register_all_commands(router: SlashCommandRouter, ctx: dict) -> None:
     from homie_app.console.commands.news import register as reg_news
     from homie_app.console.commands.briefing import register as reg_briefing
     from homie_app.console.commands.desktop import register as reg_desktop
+    from homie_app.console.commands.suggestions import register as reg_suggestions
+    from homie_app.console.commands.health import register as reg_health
 
     reg_help(router, ctx)
     reg_memory(router, ctx)
@@ -56,6 +58,8 @@ def register_all_commands(router: SlashCommandRouter, ctx: dict) -> None:
     reg_news(router, ctx)
     reg_briefing(router, ctx)
     reg_desktop(router, ctx)
+    reg_suggestions(router, ctx)
+    reg_health(router, ctx)
 
     # Quit is handled by Console.run() directly before router dispatch
     router.register(SlashCommand(

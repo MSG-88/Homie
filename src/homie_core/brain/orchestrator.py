@@ -9,7 +9,10 @@ when cognitive architecture components are not fully wired.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterator, Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.memory.working import WorkingMemory
 from homie_core.memory.episodic import EpisodicMemory
@@ -37,6 +40,7 @@ class BrainOrchestrator:
         tool_registry: Optional[ToolRegistry] = None,
         rag_pipeline: Optional[RagPipeline] = None,
         middleware_stack: Optional[MiddlewareStack] = None,
+        knowledge_graph=None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -46,7 +50,7 @@ class BrainOrchestrator:
         self._middleware = middleware_stack or MiddlewareStack()
         self._hooks = HookRegistry()
 
-        # Wire up the cognitive architecture with tools + learning + RAG
+        # Wire up the cognitive architecture with tools + learning + RAG + knowledge graph
         self._cognitive = CognitiveArchitecture(
             model_engine=model_engine,
             working_memory=working_memory,
@@ -56,6 +60,7 @@ class BrainOrchestrator:
             tool_registry=tool_registry,
             rag_pipeline=rag_pipeline,
             hooks=self._hooks,
+            knowledge_graph=knowledge_graph,
         )
 
     @property
@@ -164,8 +169,8 @@ class BrainOrchestrator:
                     if len(fact_text) + 5 <= budget:
                         parts.append(f"- {fact_text}")
                         budget -= len(fact_text) + 5
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Semantic memory lookup failed in prompt builder: %s", e)
 
         if self._em and budget > 100:
             try:
@@ -174,8 +179,8 @@ class BrainOrchestrator:
                     ep = episodes[0]["summary"][:150]
                     parts.append(f"\nRelated: {ep}")
                     budget -= len(ep) + 12
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Episodic memory recall failed in prompt builder: %s", e)
 
         parts.append(f"\nUser: {user_input}\nAssistant:")
         return "\n".join(parts)

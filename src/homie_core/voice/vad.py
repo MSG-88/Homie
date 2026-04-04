@@ -94,8 +94,8 @@ class VAD:
         if self._vad is not None:
             try:
                 return self._vad.is_speech(audio_chunk, self.sample_rate)  # type: ignore[union-attr]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("WebRTC VAD failed, falling back to energy detection: %s", e)
         return self._energy_detect(audio_chunk)
 
     def _energy_detect(self, audio_chunk: bytes) -> bool:

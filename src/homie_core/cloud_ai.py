@@ -1,7 +1,10 @@
 """Internal cloud AI configuration — transparent fallback to Qubrid platform."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.vault.secure_vault import SecureVault
 
@@ -35,8 +38,8 @@ def get_cloud_config(vault: SecureVault) -> Optional[dict]:
                 "base_url": _BASE_URL,
                 "model": _DEFAULT_MODEL,
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to retrieve cloud AI credentials from vault: %s", e)
     return None
 
 

@@ -8,7 +8,10 @@ Sources:
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.middleware.base import HomieMiddleware
 from homie_core.knowledge.graph import KnowledgeGraph
@@ -54,8 +57,8 @@ class ContextEnricherMiddleware(HomieMiddleware):
                 summary = self._email_summary()
                 if summary:
                     blocks.append(f"Email: {summary}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Email context enrichment failed: %s", e)
 
         # ------------------------------------------------------------------ #
         # Behavioral context
@@ -65,8 +68,8 @@ class ContextEnricherMiddleware(HomieMiddleware):
                 summary = self._behavioral_summary()
                 if summary:
                     blocks.append(f"Activity: {summary}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Behavioral context enrichment failed: %s", e)
 
         if blocks:
             return system_prompt + "\n[LIVE CONTEXT]\n" + "\n".join(blocks) + "\n"

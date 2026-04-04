@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Callable, Optional, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from homie_core.context.screen_monitor import ScreenMonitor, WindowInfo
 from homie_core.context.app_tracker import AppTracker
@@ -180,8 +183,8 @@ class ObserverLoop:
                 # internally so calling tick() every poll cycle is safe.
                 if self._proactive:
                     self._proactive.tick()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Observer loop poll cycle error: %s", e)
 
             elapsed = time.monotonic() - start
             if elapsed > self._poll_interval * self._cpu_budget:

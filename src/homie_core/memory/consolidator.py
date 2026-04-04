@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from homie_core.memory.working import WorkingMemory
 
@@ -39,6 +42,6 @@ Respond with ONLY the JSON array."""
             facts = json.loads(response.strip())
             if isinstance(facts, list):
                 return [f for f in facts if isinstance(f, str)]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse fact extraction JSON from model response: %s", e)
         return []

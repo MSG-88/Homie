@@ -66,6 +66,28 @@ def _handle_briefing(args: str, **ctx) -> str:
     except Exception:
         pass
 
+    # Proactive intelligence: follow-ups, calendar, patterns
+    proactive = ctx.get("proactive_intelligence")
+    if proactive:
+        try:
+            briefing_data = proactive.generate_briefing()
+            if briefing_data.calendar_summary:
+                lines.append(f"**Calendar:** {briefing_data.calendar_summary}")
+                lines.append("")
+            if briefing_data.pending_followups:
+                lines.append(f"**Follow-ups ({len(briefing_data.pending_followups)}):**")
+                for fu in briefing_data.pending_followups[:5]:
+                    due = f" (due: {fu.get('due_by', 'unset')})" if fu.get("due_by") else ""
+                    lines.append(f"  - {fu['text']}{due}")
+                lines.append("")
+            if briefing_data.suggestions:
+                lines.append("**Suggestions:**")
+                for s in briefing_data.suggestions[:3]:
+                    lines.append(f"  - {s}")
+                lines.append("")
+        except Exception:
+            pass
+
     if len(lines) == 1:
         lines.append("No data sources configured yet. Use /connect to set up weather, news, or email.")
 

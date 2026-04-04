@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import logging
 import threading
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.plugins.base import HomiePlugin, PluginResult
 
@@ -37,8 +40,8 @@ class PluginManager:
                             plugin = attr()
                             self.register(plugin)
                             loaded += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to load plugin from '%s': %s", f.name, e)
         return loaded
 
     def enable(self, name: str, config: dict | None = None) -> bool:
@@ -106,6 +109,6 @@ class PluginManager:
                     ctx = plugin.on_context()
                     if ctx:
                         context[name] = ctx
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Plugin '%s' context collection failed: %s", name, e)
         return context

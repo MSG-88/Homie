@@ -9,11 +9,14 @@ that the cognitive architecture can inject into prompts.
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.memory.semantic import SemanticMemory
 from homie_core.memory.episodic import EpisodicMemory
@@ -47,8 +50,16 @@ class UserProfile:
     verbosity_preference: str = "moderate"  # terse / moderate / detailed
     asks_follow_ups: bool = False
 
+    # Expertise tracking
+    expertise_level: str = "unknown"  # beginner / intermediate / advanced / expert
+    communication_style: str = "balanced"  # formal / casual / balanced / technical
+
     # Raw facts for prompt injection
     all_facts: list[str] = field(default_factory=list)
+
+    # Synthesis metadata
+    last_updated: str = ""
+    update_count: int = 0
 
     def to_context_block(self, max_chars: int = 800) -> str:
         """Render as a structured block for prompt injection."""
@@ -189,15 +200,15 @@ class UserModelSynthesizer:
                 facts = self._sm.get_facts(min_confidence=0.3)
                 profile.all_facts = [f["fact"] for f in facts]
                 self._extract_from_facts(profile, facts)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to extract user profile from semantic memory: %s", e)
 
         # 2. Extract patterns from episodic memory
         if self._em:
             try:
                 self._extract_from_episodes(profile)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to extract user profile from episodic memory: %s", e)
 
         # 3. Infer interaction preferences from facts
         self._infer_preferences(profile)
@@ -282,6 +293,128 @@ class UserModelSynthesizer:
             profile.verbosity_preference = "terse"
         elif not profile.skills and not profile.tools_and_tech:
             profile.verbosity_preference = "detailed"
+
+        # Expertise level: infer from skills and tech stack breadth
+        total_signals = len(profile.skills) + len(profile.tools_and_tech)
+        if total_signals >= 8:
+            profile.expertise_level = "expert"
+        elif total_signals >= 5:
+            profile.expertise_level = "advanced"
+        elif total_signals >= 2:
+            profile.expertise_level = "intermediate"
+        elif total_signals >= 1:
+            profile.expertise_level = "beginner"
+
+        # Communication style: infer from facts
+        fact_text = " ".join(profile.all_facts).lower()
+        if any(w in fact_text for w in ["formal", "professional", "business"]):
+            profile.communication_style = "formal"
+        elif any(w in fact_text for w in ["casual", "chill", "relaxed"]):
+            profile.communication_style = "casual"
+        elif any(w in fact_text for w in ["technical", "code", "engineer", "developer"]):
+            profile.communication_style = "technical"
+
+    def incremental_update(self, new_facts: list[str]) -> UserProfile:
+        """Incrementally update the user profile with newly learned facts.
+
+        More efficient than a full rebuild — only processes new facts
+        against the existing profile and merges changes.
+
+        Args:
+            new_facts: List of fact strings just learned from conversation.
+
+        Returns:
+            Updated UserProfile.
+        """
+        profile = self.get_profile()
+
+        for fact_text in new_facts:
+            category, value = _categorize_fact(fact_text)
+
+            if category == "name" and not profile.name:
+                profile.name = value
+            elif category == "role":
+                profile.role = value  # Role can be updated
+            elif category == "location":
+                profile.location = value  # Location can be updated
+            elif category == "skill" and value not in profile.skills:
+                profile.skills.append(value)
+            elif category == "tech" and value not in profile.tools_and_tech:
+                profile.tools_and_tech.append(value)
+            elif category == "preference" and value not in profile.preferences:
+                profile.preferences.append(value)
+
+            if fact_text not in profile.all_facts:
+                profile.all_facts.append(fact_text)
+
+        # Re-infer preferences with updated data
+        self._infer_preferences(profile)
+
+        profile.update_count += 1
+        profile.last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # Update cache
+        self._cache = profile
+        self._cache_time = time.monotonic()
+
+        # Persist to semantic memory profile store
+        self._persist_profile(profile)
+
+        return profile
+
+    def _persist_profile(self, profile: UserProfile) -> None:
+        """Persist the synthesized profile to semantic memory's profile store."""
+        if not self._sm:
+            return
+        try:
+            data = {
+                "name": profile.name,
+                "role": profile.role,
+                "location": profile.location,
+                "preferences": profile.preferences[:20],
+                "skills": profile.skills[:20],
+                "tools_and_tech": profile.tools_and_tech[:20],
+                "common_topics": profile.common_topics[:10],
+                "expertise_level": profile.expertise_level,
+                "communication_style": profile.communication_style,
+                "verbosity_preference": profile.verbosity_preference,
+                "dominant_mood": profile.dominant_mood,
+                "update_count": profile.update_count,
+                "last_updated": profile.last_updated,
+            }
+            self._sm.set_profile("user_model", data)
+        except Exception:
+            pass
+
+    def load_persisted_profile(self) -> Optional[UserProfile]:
+        """Load previously persisted profile from semantic memory.
+
+        Returns None if no persisted profile exists.
+        """
+        if not self._sm:
+            return None
+        try:
+            data = self._sm.get_profile("user_model")
+            if not data:
+                return None
+            profile = UserProfile(
+                name=data.get("name", ""),
+                role=data.get("role", ""),
+                location=data.get("location", ""),
+                preferences=data.get("preferences", []),
+                skills=data.get("skills", []),
+                tools_and_tech=data.get("tools_and_tech", []),
+                common_topics=data.get("common_topics", []),
+                expertise_level=data.get("expertise_level", "unknown"),
+                communication_style=data.get("communication_style", "balanced"),
+                verbosity_preference=data.get("verbosity_preference", "moderate"),
+                dominant_mood=data.get("dominant_mood", "neutral"),
+                update_count=data.get("update_count", 0),
+                last_updated=data.get("last_updated", ""),
+            )
+            return profile
+        except Exception:
+            return None
 
     def invalidate_cache(self) -> None:
         """Force next get_profile() to rebuild."""

@@ -117,6 +117,7 @@ from homie_core.intelligence.audit_log import AuditLogger
 from homie_core.intelligence.flow_detector import FlowDetector
 from homie_core.intelligence.workflow_predictor import WorkflowPredictor
 from homie_core.intelligence.proactive_engine import ProactiveEngine
+from homie_core.intelligence.proactive import ProactiveIntelligence
 from homie_core.memory.working import WorkingMemory
 from homie_core.brain.orchestrator import BrainOrchestrator
 from homie_core.rag.pipeline import RagPipeline
@@ -383,6 +384,17 @@ class HomieDaemon:
         self._proactive_engine = ProactiveEngine(
             working_memory=self._working_memory,
             interruption_model=self._interruption_model,
+        )
+
+        # Proactive intelligence (morning briefing, follow-ups, patterns)
+        self._proactive_intelligence = ProactiveIntelligence(
+            working_memory=self._working_memory,
+            email_service=self._email_service,
+            calendar_provider=None,  # wired after calendar init if available
+            knowledge_graph=None,
+            session_tracker=self._session_tracker,
+            user_name=self._config.user_name,
+            storage_dir=storage / "intelligence",
         )
 
         # Observer loop — with neural components if available
@@ -666,12 +678,22 @@ class HomieDaemon:
                 backend=backend,
             )
 
+            # Initialize knowledge graph (optional — degrades gracefully)
+            knowledge_graph = None
+            try:
+                from homie_core.knowledge import KnowledgeGraph
+                kg_path = Path(self._config.storage.path) / "knowledge_graph.db"
+                knowledge_graph = KnowledgeGraph(kg_path)
+            except Exception:
+                pass
+
             self._brain = BrainOrchestrator(
                 model_engine=self._engine,
                 working_memory=self._working_memory,
                 tool_registry=tool_registry,
                 rag_pipeline=self._rag,
                 middleware_stack=middleware_stack,
+                knowledge_graph=knowledge_graph,
             )
             # Dynamic system prompt with user name and time awareness
             system_prompt = build_system_prompt(
@@ -683,6 +705,12 @@ class HomieDaemon:
     def _on_user_query(self, text: str) -> str:
         if not self._ensure_brain():
             return "Model not available. Run 'homie init' to set up."
+
+        # Track follow-ups from user messages
+        try:
+            self._proactive_intelligence.ingest_conversation(text)
+        except Exception:
+            pass
 
         self._inject_proactive_context()
         self._analyze_sentiment(text)
@@ -907,6 +935,8 @@ class HomieDaemon:
                     self._flush_pending_notifications()
                     # Check proactive suggestions
                     self._check_proactive_suggestions()
+                    # Proactive intelligence tick (briefing, follow-ups, patterns)
+                    self._proactive_intelligence_tick()
 
                 # Intel gathering: deep analysis every 5 minutes
                 if intel_counter >= 300:
@@ -1086,6 +1116,30 @@ class HomieDaemon:
             text = suggestion if isinstance(suggestion, str) else suggestion.get("text", "")
             if text:
                 self._deliver_notification("Homie Suggestion", text[:200], "proactive")
+
+    def _proactive_intelligence_tick(self) -> None:
+        """Tick the proactive intelligence module — briefings, follow-ups, patterns."""
+        try:
+            result = self._proactive_intelligence.tick()
+
+            if "briefing" in result:
+                briefing = result["briefing"]
+                text = briefing.format_text()
+                self._deliver_notification(
+                    "Morning Briefing", text[:300], "system_alerts",
+                )
+                logger.info("[Proactive] Morning briefing delivered")
+
+            if "followups" in result:
+                for fu in result["followups"]:
+                    self._deliver_notification(
+                        "Follow-up Reminder",
+                        f"You said: {fu.text}"[:200],
+                        "proactive",
+                    )
+                logger.info("[Proactive] Surfaced %d follow-ups", len(result["followups"]))
+        except Exception as exc:
+            logger.debug("[Proactive] Intelligence tick failed: %s", exc)
 
     def stop(self) -> None:
         if not self._running:

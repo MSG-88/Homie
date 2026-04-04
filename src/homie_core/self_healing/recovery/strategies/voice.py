@@ -37,8 +37,8 @@ def degrade_to_text_only(module, status, error, voice_manager=None, **ctx) -> Re
     if voice_manager:
         try:
             voice_manager.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to stop voice manager during text-only degradation: %s", e)
     logger.warning("Voice pipeline degraded — text-only mode active")
     return RecoveryResult(
         success=True,

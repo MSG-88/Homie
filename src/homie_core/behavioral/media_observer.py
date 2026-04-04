@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import platform
 from collections import defaultdict
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from homie_core.behavioral.base import BaseObserver
 
@@ -61,6 +64,6 @@ class MediaObserver(BaseObserver):
                     "artist": info.artist or "",
                     "album": info.album_title or "",
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Windows media API query failed: %s", e)
         return None

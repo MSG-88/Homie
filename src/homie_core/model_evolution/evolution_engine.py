@@ -79,8 +79,8 @@ class EvolutionEngine:
             form = "casual" if profile.formality < 0.4 else "formal" if profile.formality > 0.7 else ""
             depth = "expert" if profile.technical_depth > 0.7 else "simple" if profile.technical_depth < 0.3 else ""
             builder.set_preferences(verbosity=verb, formality=form, depth=depth, format_pref=profile.format_preference)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to apply user preferences to Modelfile: %s", e)
 
         # Customizations layer
         try:
@@ -88,16 +88,16 @@ class EvolutionEngine:
             active = [c["request_text"] for c in customs if c.get("status") == "active"]
             if active:
                 builder.set_customizations(active)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to apply customizations to Modelfile: %s", e)
 
         # Parameters from profiler
         try:
             profile = self._profiler.get_profile("general")
             if profile and profile.sample_count > 5:
                 builder.set_parameters(temperature=round(profile.temperature, 2))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to apply profiler parameters to Modelfile: %s", e)
 
         return builder
 

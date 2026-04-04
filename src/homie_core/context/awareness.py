@@ -214,8 +214,8 @@ class ContextualAwareness:
             if result.returncode == 0 and result.stdout.strip():
                 commits = result.stdout.strip().split("\n")[:3]
                 ctx.recent_git_activity = "; ".join(commits)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Git context refresh failed: %s", e)
 
         self._context = ctx
         self._last_refresh = now

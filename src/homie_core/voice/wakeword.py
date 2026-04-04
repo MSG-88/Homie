@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class WakeWordEngine:
@@ -36,8 +39,8 @@ class WakeWordEngine:
                     if self._callback:
                         self._callback()
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Wake-word audio processing failed: %s", e)
         return False
 
     @property

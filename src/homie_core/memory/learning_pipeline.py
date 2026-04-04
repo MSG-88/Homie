@@ -10,8 +10,11 @@ The pipeline runs lightweight pattern extraction after every response
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.memory.working import WorkingMemory
 from homie_core.memory.semantic import SemanticMemory
@@ -184,8 +187,8 @@ class LearningPipeline:
                     f for f in all_facts
                     if tag in f.get("tags", [])
                 ]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to retrieve project facts for '%s': %s", project_name, e)
 
         if self._em:
             try:
@@ -196,8 +199,8 @@ class LearningPipeline:
                         ep.get("context_tags", [])
                     ).lower()
                 ]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to retrieve project episodes for '%s': %s", project_name, e)
 
         return result
 
@@ -330,8 +333,8 @@ class LearningPipeline:
                     outcome=outcome or "completed",
                     context_tags=context_tags,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to record session episode in episodic memory: %s", e)
 
         return summary
 

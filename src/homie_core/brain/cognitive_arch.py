@@ -19,11 +19,14 @@ Algorithms:
 """
 from __future__ import annotations
 
+import logging
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
+
+logger = logging.getLogger(__name__)
 
 from homie_core.memory.working import WorkingMemory
 from homie_core.memory.episodic import EpisodicMemory
@@ -40,6 +43,13 @@ from homie_core.memory.user_model import UserModelSynthesizer
 from homie_core.security.injection_detector import sanitize_external_content
 from homie_core.security.redact import redact_sensitive_text
 from homie_core.rag.pipeline import RagPipeline
+
+# Knowledge graph imports — optional; degrade gracefully if unavailable
+try:
+    from homie_core.knowledge import KnowledgeGraph, EntityExtractor, Entity
+    _KG_AVAILABLE = True
+except ImportError:
+    _KG_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +275,7 @@ class CognitiveArchitecture:
         tool_registry: Optional[ToolRegistry] = None,
         rag_pipeline: Optional[RagPipeline] = None,
         hooks: Optional[HookRegistry] = None,
+        knowledge_graph=None,
     ):
         self._engine = model_engine
         self._wm = working_memory
@@ -285,6 +296,11 @@ class CognitiveArchitecture:
             semantic_memory=semantic_memory,
             episodic_memory=episodic_memory,
         )
+
+        # Knowledge graph integration (optional — degrades gracefully)
+        self._kg = knowledge_graph if (_KG_AVAILABLE and knowledge_graph is not None) else None
+        self._entity_extractor = EntityExtractor(use_model=True) if _KG_AVAILABLE else None
+
         # Conversation meta-tracking
         self._topic_history: list[str] = []
         self._user_engagement: float = 0.5  # 0=disengaged, 1=highly engaged
@@ -314,6 +330,95 @@ class CognitiveArchitecture:
         sa.current_hour = utc_now().hour
         sa.conversation_turns = len(self._wm.get_conversation())
         return sa
+
+    # ------------------------------------------------------------------
+    # Knowledge graph: entity extraction (wired into PERCEIVE)
+    # ------------------------------------------------------------------
+
+    def _extract_query_entities(self, text: str) -> list:
+        """Extract entities from user query text using EntityExtractor.
+
+        Returns a list of Entity objects, or [] if graph/extractor unavailable.
+        """
+        if not self._entity_extractor:
+            return []
+        try:
+            entities, _relationships = self._entity_extractor.extract(text, source="query")
+            return entities
+        except Exception as e:
+            logger.warning("Entity extraction failed for query entities: %s", e)
+            return []
+
+    # ------------------------------------------------------------------
+    # Knowledge graph: retrieval (wired into RETRIEVE)
+    # ------------------------------------------------------------------
+
+    def _retrieve_graph_context(self, query: str, entities: list, budget: int) -> str:
+        """Query the knowledge graph for context related to the query.
+
+        Uses two strategies:
+        1. Look up entities that were extracted from the query
+        2. Find entities whose names appear in the query text
+
+        Returns a formatted text block for prompt injection, or "".
+        """
+        if not self._kg:
+            return ""
+        try:
+            context_parts: list[str] = []
+            used = 0
+            seen_ids: set[str] = set()
+
+            # Strategy 1: match extracted entities against the graph
+            for entity in entities:
+                matches = self._kg.find_entities(name=entity.name, entity_type=entity.entity_type, limit=3)
+                for match in matches:
+                    if match.id in seen_ids:
+                        continue
+                    seen_ids.add(match.id)
+                    summary = self._kg.context_for_entity(match.id)
+                    if summary and used + len(summary) < budget:
+                        context_parts.append(f"  - {summary}")
+                        used += len(summary) + 5
+
+            # Strategy 2: substring match on entity names in query
+            mentioned = self._kg.entities_mentioned_in(query)
+            for ent in mentioned:
+                if ent.id in seen_ids:
+                    continue
+                seen_ids.add(ent.id)
+                summary = self._kg.context_for_entity(ent.id)
+                if summary and used + len(summary) < budget:
+                    context_parts.append(f"  - {summary}")
+                    used += len(summary) + 5
+
+            if not context_parts:
+                return ""
+            return "\n[GRAPH]\n" + "\n".join(context_parts)
+        except Exception as e:
+            logger.warning("Knowledge graph retrieval failed: %s", e)
+            return ""
+
+    # ------------------------------------------------------------------
+    # Knowledge graph: store learned entities (wired after REFLECT)
+    # ------------------------------------------------------------------
+
+    def _store_conversation_entities(self, text: str, source: str = "conversation") -> None:
+        """Extract and merge entities from text into the knowledge graph.
+
+        Called after generating a response to capture new knowledge.
+        Silently no-ops if graph or extractor is unavailable.
+        """
+        if not self._kg or not self._entity_extractor:
+            return
+        try:
+            entities, relationships = self._entity_extractor.extract(text, source=source)
+            for entity in entities:
+                self._kg.merge_entity(entity)
+            for rel in relationships:
+                self._kg.add_relationship(rel)
+        except Exception as e:
+            logger.warning("Knowledge graph entity storage failed: %s", e)  # Never break the pipeline
 
     # ------------------------------------------------------------------
     # Stage 2: CLASSIFY — determine query complexity
@@ -374,7 +479,8 @@ class CognitiveArchitecture:
                 result.append(ep)
                 used += len(text) + 5
             return result
-        except Exception:
+        except Exception as e:
+            logger.warning("Episodic memory recall failed: %s", e)
             return []
 
     def _retrieve_documents(self, query: str, budget: int, top_k: int = 5) -> str:
@@ -386,7 +492,8 @@ class CognitiveArchitecture:
             return ""
         try:
             return self._rag.build_context_block(query, max_chars=budget, top_k=top_k)
-        except Exception:
+        except Exception as e:
+            logger.warning("RAG document retrieval failed: %s", e)
             return ""
 
     # ------------------------------------------------------------------
@@ -401,6 +508,7 @@ class CognitiveArchitecture:
         facts: list[dict],
         episodes: list[dict],
         documents_block: str = "",
+        graph_block: str = "",
     ) -> str:
         """Build a rich, structured prompt using all available intelligence.
 
@@ -439,6 +547,13 @@ class CognitiveArchitecture:
                 if used + len(knowledge) < max_chars - len(query) - 100:
                     parts.append(knowledge)
                     used += len(knowledge)
+
+        # 3b. Knowledge graph context (simple+ queries — entity relationships)
+        if complexity in (QueryComplexity.SIMPLE, QueryComplexity.MODERATE, QueryComplexity.COMPLEX, QueryComplexity.DEEP):
+            if graph_block:
+                if used + len(graph_block) < max_chars - len(query) - 100:
+                    parts.append(graph_block)
+                    used += len(graph_block)
 
         # 4. Relevant episodes (complex+ queries)
         if complexity in (QueryComplexity.COMPLEX, QueryComplexity.DEEP):
@@ -660,12 +775,21 @@ class CognitiveArchitecture:
         """
         awareness = self._perceive()
         awareness = self._hooks.emit(PipelineStage.PERCEIVED, awareness)
+
+        # PERCEIVE stage: extract entities from the user query
+        query_entities = self._extract_query_entities(user_input)
+
         complexity = self._classify(user_input, awareness)
         complexity = self._hooks.emit(PipelineStage.CLASSIFIED, complexity)
 
         budget_cfg = _TOKEN_BUDGETS[complexity]
         facts = self._retrieve_relevant_facts(user_input, budget=budget_cfg["prompt_chars"] // 4)
         episodes = self._retrieve_relevant_episodes(user_input, budget=budget_cfg["prompt_chars"] // 6)
+
+        # RETRIEVE stage: query knowledge graph for related entities/facts
+        graph_block = self._retrieve_graph_context(
+            user_input, query_entities, budget=budget_cfg["prompt_chars"] // 6
+        )
 
         # RAG: retrieve relevant documents for moderate+ queries
         # Apply injection detection on retrieved documents
@@ -686,7 +810,10 @@ class CognitiveArchitecture:
         episodes = bundle.episodes
         documents_block = bundle.documents
 
-        prompt = self._build_cognitive_prompt(user_input, complexity, awareness, facts, episodes, documents_block)
+        prompt = self._build_cognitive_prompt(
+            user_input, complexity, awareness, facts, episodes,
+            documents_block, graph_block,
+        )
 
         # Inject tool descriptions if tools are available
         if self._tools:
@@ -748,6 +875,10 @@ class CognitiveArchitecture:
         self._wm.add_message("assistant", response)
         self._reflection.record_feedback(temperature, True)
 
+        # After REFLECT: store entities learned from the conversation
+        self._store_conversation_entities(user_input, source="user_query")
+        self._store_conversation_entities(response, source="assistant_response")
+
         return response
 
     def process_stream(self, user_input: str) -> Iterator[str]:
@@ -776,6 +907,10 @@ class CognitiveArchitecture:
         full_response = "".join(chunks)
         self._wm.add_message("assistant", full_response)
         self._reflection.record_feedback(temperature, True)
+
+        # After REFLECT: store entities learned from the conversation
+        self._store_conversation_entities(user_input, source="user_query")
+        self._store_conversation_entities(full_response, source="assistant_response")
 
     def consolidate_session(self, mood: Optional[str] = None) -> Optional[str]:
         """Consolidate current session into episodic memory. Call at session end."""
