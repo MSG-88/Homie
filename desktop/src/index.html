@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homie</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Custom title bar (frameless window) -->
+  <header id="titlebar" data-tauri-drag-region>
+    <div class="titlebar-left">
+      <span class="titlebar-logo">H</span>
+      <span class="titlebar-title">Homie</span>
+      <span id="connection-dot" class="dot disconnected" title="Disconnected"></span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="btn-pin" class="tb-btn" title="Always on top">&#128204;</button>
+      <button id="btn-settings" class="tb-btn" title="Settings">&#9881;</button>
+      <button id="btn-minimize" class="tb-btn" title="Minimize to tray">&#8722;</button>
+      <button id="btn-close" class="tb-btn close" title="Close to tray">&times;</button>
+    </div>
+  </header>
+
+  <!-- Main chat view -->
+  <main id="chat-view">
+    <div id="messages" class="messages"></div>
+
+    <div id="typing-indicator" class="typing-indicator hidden">
+      <span></span><span></span><span></span>
+    </div>
+
+    <form id="chat-form" class="chat-input-bar" autocomplete="off">
+      <button type="button" id="btn-voice" class="icon-btn" title="Voice input">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <input type="text" id="chat-input" placeholder="Ask Homie anything..." autofocus />
+      <button type="submit" id="btn-send" class="icon-btn" title="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </form>
+  </main>
+
+  <!-- Settings view (toggled via hash) -->
+  <section id="settings-view" class="hidden">
+    <h2>Settings</h2>
+
+    <div class="setting-group">
+      <label for="sel-model">Model</label>
+      <select id="sel-model">
+        <option value="homie-default">Homie Default</option>
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="claude-sonnet">Claude Sonnet</option>
+        <option value="llama3">Llama 3 (local)</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
+      <label for="tog-voice">Voice responses</label>
+      <label class="switch">
+        <input type="checkbox" id="tog-voice" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <label for="tog-aot">Always on top</label>
+      <label class="switch">
+        <input type="checkbox" id="tog-aot" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-group">
+      <label for="sel-theme">Theme</label>
+      <select id="sel-theme">
+        <option value="dark">Dark</option>
+        <option value="midnight">Midnight</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
+
+    <h3>Plugins</h3>
+    <div class="setting-group">
+      <label for="plug-calendar">Calendar</label>
+      <label class="switch"><input type="checkbox" id="plug-calendar" checked /><span class="slider"></span></label>
+    </div>
+    <div class="setting-group">
+      <label for="plug-knowledge">Knowledge Graph</label>
+      <label class="switch"><input type="checkbox" id="plug-knowledge" checked /><span class="slider"></span></label>
+    </div>
+    <div class="setting-group">
+      <label for="plug-proactive">Proactive Intelligence</label>
+      <label class="switch"><input type="checkbox" id="plug-proactive" checked /><span class="slider"></span></label>
+    </div>
+
+    <button id="btn-back" class="btn-primary">Back to Chat</button>
+  </section>
+
+  <script src="app.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
