@@ -666,12 +666,22 @@ class HomieDaemon:
                 backend=backend,
             )
 
+            # Initialize knowledge graph (optional — degrades gracefully)
+            knowledge_graph = None
+            try:
+                from homie_core.knowledge import KnowledgeGraph
+                kg_path = Path(self._config.storage.path) / "knowledge_graph.db"
+                knowledge_graph = KnowledgeGraph(kg_path)
+            except Exception:
+                pass
+
             self._brain = BrainOrchestrator(
                 model_engine=self._engine,
                 working_memory=self._working_memory,
                 tool_registry=tool_registry,
                 rag_pipeline=self._rag,
                 middleware_stack=middleware_stack,
+                knowledge_graph=knowledge_graph,
             )
             # Dynamic system prompt with user name and time awareness
             system_prompt = build_system_prompt(
