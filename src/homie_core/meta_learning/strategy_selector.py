@@ -1,18 +1,54 @@
 # src/homie_core/meta_learning/strategy_selector.py
-"""Strategy Selector — learns which strategies work best for different task types."""
-
+"""Strategy Selector -- epsilon-greedy and UCB1 multi-armed bandits."""
 from __future__ import annotations
-
-import logging
-import random
-import time
-from dataclasses import dataclass, field
+import logging, math, random, time
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any
+from .strategies import BUILTIN_STRATEGIES, ReasoningStrategy, get_strategy_by_name
 
 log = logging.getLogger(__name__)
+EXPLORE_RATE = 0.15
 
-# ── default strategies per broad task category ──────────────────────────
-_DEFAULT_STRATEGIES: dict[str, list[dict]] = {
+
+@dataclass
+class ArmRecord:
+    attempts: int = 0; successes: int = 0
+    total_duration_ms: float = 0.0; total_quality: float = 0.0
+    total_satisfaction: float = 0.0; last_used: float = 0.0
+
+    @property
+    def success_rate(self): return self.successes / self.attempts if self.attempts else 0.0
+    @property
+    def avg_quality(self): return self.total_quality / self.attempts if self.attempts else 0.0
+    @property
+    def avg_satisfaction(self): return self.total_satisfaction / self.attempts if self.attempts else 0.0
+    @property
+    def avg_duration_ms(self): return self.total_duration_ms / self.attempts if self.attempts else 0.0
+    def reward(self): return 0.40*self.success_rate + 0.35*self.avg_quality + 0.25*self.avg_satisfaction
+
+
+class SelectionAlgorithm(str, Enum):
+    EPSILON_GREEDY = "epsilon_greedy"
+    UCB1 = "ucb1"
+
+
+def _eps_select(arms, eps):
+    keys = list(arms.keys())
+    if not keys: raise ValueError("No arms")
+    return random.choice(keys) if random.random() < eps else max(keys, key=lambda k: arms[k].reward())
+
+
+def _ucb1_select(arms):
+    keys = list(arms.keys())
+    if not keys: raise ValueError("No arms")
+    total = sum(a.attempts for a in arms.values())
+    untried = [k for k in keys if arms[k].attempts == 0]
+    if untried: return random.choice(untried)
+    return max(keys, key=lambda k: arms[k].reward() + math.sqrt(2.0*math.log(total)/arms[k].attempts))
+
+
+_DEFAULT_STRATEGIES = {
     "code_generation": [
         {"agents": ["coder"], "planning": "chain_of_thought", "tools": ["editor"]},
         {"agents": ["coder", "reviewer"], "planning": "plan_and_execute", "tools": ["editor", "linter"]},
@@ -21,140 +57,82 @@ _DEFAULT_STRATEGIES: dict[str, list[dict]] = {
         {"agents": ["researcher"], "planning": "breadth_first", "tools": ["web_search"]},
         {"agents": ["researcher", "summariser"], "planning": "iterative_deepening", "tools": ["web_search", "rag"]},
     ],
-    "conversation": [
-        {"agents": ["conversationalist"], "planning": "reactive", "tools": []},
-    ],
+    "conversation": [{"agents": ["conversationalist"], "planning": "reactive", "tools": []}],
 }
 
-EXPLORE_RATE = 0.15  # epsilon for epsilon-greedy exploration
 
-
-@dataclass
-class _StrategyRecord:
-    """Accumulated performance data for one (task_type, strategy_key) pair."""
-
-    attempts: int = 0
-    successes: int = 0
-    total_duration_ms: float = 0.0
-    total_quality: float = 0.0
-    last_used: float = 0.0
-
-    @property
-    def success_rate(self) -> float:
-        return self.successes / self.attempts if self.attempts else 0.0
-
-    @property
-    def avg_duration_ms(self) -> float:
-        return self.total_duration_ms / self.attempts if self.attempts else 0.0
-
-    @property
-    def avg_quality(self) -> float:
-        return self.total_quality / self.attempts if self.attempts else 0.0
-
-    def score(self) -> float:
-        """Composite score used for ranking (higher is better)."""
-        return 0.6 * self.success_rate + 0.4 * self.avg_quality
-
-
-def _strategy_key(strategy: dict) -> str:
-    """Deterministic string key for a strategy dict."""
-    agents = ",".join(sorted(strategy.get("agents", [])))
-    planning = strategy.get("planning", "")
-    tools = ",".join(sorted(strategy.get("tools", [])))
-    return f"{agents}|{planning}|{tools}"
+def _skey(s):
+    if isinstance(s, ReasoningStrategy): return s.name
+    return f"{','.join(sorted(s.get('agents',[])))}" + f"|{s.get('planning',s.get('name',''))}" + f"|{','.join(sorted(s.get('tools',[])))}"
 
 
 class StrategySelector:
-    """Learns which strategies work best for different task types."""
+    """Bandit-based strategy selector with SQLite persistence."""
 
-    def __init__(self, storage: Any | None = None, explore_rate: float = EXPLORE_RATE):
-        self._storage = storage
-        self._explore_rate = explore_rate
-        # {task_type: {strategy_key: _StrategyRecord}}
-        self._records: dict[str, dict[str, _StrategyRecord]] = {}
-        # {task_type: {strategy_key: strategy_dict}}
+    def __init__(self, storage=None, explore_rate=EXPLORE_RATE, algorithm=SelectionAlgorithm.UCB1):
+        self._storage, self._explore_rate, self._algorithm = storage, explore_rate, algorithm
+        self._records: dict[str, dict[str, ArmRecord]] = {}
         self._strategies: dict[str, dict[str, dict]] = {}
-        self._load_defaults()
+        self._reasoning: dict[str, ReasoningStrategy] = {}
+        for tt, strats in _DEFAULT_STRATEGIES.items():
+            for s in strats: self._strategies.setdefault(tt, {})[_skey(s)] = s
+        for s in BUILTIN_STRATEGIES:
+            self._reasoning[s.name] = s
+            for tt in ("conversation","code_generation","research","general","analysis","creative"):
+                self._strategies.setdefault(tt, {})[_skey(s)] = s.to_dict()
+        if storage:
+            try:
+                for r in storage.load_strategies():
+                    self._strategies.setdefault(r["task_type"], {})[r["strategy_key"]] = r["strategy"]
+                for r in storage.load_strategy_records():
+                    self._records.setdefault(r["task_type"], {})[r["strategy_key"]] = ArmRecord(
+                        attempts=r["attempts"], successes=r["successes"],
+                        total_duration_ms=r["total_duration_ms"], total_quality=r["total_quality"],
+                        total_satisfaction=r.get("total_satisfaction", 0.0))
+            except Exception: log.warning("Failed to load meta-learning state", exc_info=True)
 
-    # ── public API ──────────────────────────────────────────────────────
+    def select_strategy(self, task_type, context=None):
+        cands = self._strategies.get(task_type, {})
+        if not cands: return {"agents": [], "planning": "reactive", "tools": []}
+        arm_map = self._records.setdefault(task_type, {})
+        for k in cands: arm_map.setdefault(k, ArmRecord())
+        chosen = _eps_select(arm_map, self._explore_rate) if self._algorithm == SelectionAlgorithm.EPSILON_GREEDY else _ucb1_select(arm_map)
+        return dict(cands[chosen])
 
-    def select_strategy(self, task_type: str, context: dict | None = None) -> dict:
-        """Select optimal strategy using epsilon-greedy over historical data."""
-        context = context or {}
-        candidates = self._strategies.get(task_type, {})
+    def select_reasoning_strategy(self, task_type, context=None):
+        sel = self.select_strategy(task_type, context)
+        name = sel.get("planning") or sel.get("name", "")
+        return self._reasoning.get(name) or self._reasoning.get(_skey(sel))
 
-        if not candidates:
-            log.info("No strategies registered for %s — returning empty.", task_type)
-            return {"agents": [], "planning": "reactive", "tools": []}
+    def record_outcome(self, task_type, strategy, success, metrics=None):
+        metrics = metrics or {}; key = _skey(strategy)
+        arm = self._records.setdefault(task_type, {}).setdefault(key, ArmRecord())
+        arm.attempts += 1
+        if success: arm.successes += 1
+        arm.total_duration_ms += metrics.get("duration_ms", 0.0)
+        arm.total_quality += metrics.get("quality", 0.0)
+        arm.total_satisfaction += metrics.get("satisfaction", 0.0)
+        arm.last_used = time.time()
+        self._strategies.setdefault(task_type, {})[key] = strategy.to_dict() if isinstance(strategy, ReasoningStrategy) else strategy
+        if self._storage:
+            try: self._storage.upsert_strategy_record(task_type=task_type, strategy_key=key, attempts=arm.attempts, successes=arm.successes, total_duration_ms=arm.total_duration_ms, total_quality=arm.total_quality, total_satisfaction=arm.total_satisfaction, last_used=str(arm.last_used))
+            except: pass
 
-        # Explore: pick randomly
-        if random.random() < self._explore_rate:
-            key = random.choice(list(candidates.keys()))
-            log.debug("Exploring strategy %s for %s", key, task_type)
-            return dict(candidates[key])
+    def get_strategy_stats(self, task_type):
+        return {k: {"attempts": r.attempts, "success_rate": round(r.success_rate,4), "avg_duration_ms": round(r.avg_duration_ms,2), "avg_quality": round(r.avg_quality,4), "avg_satisfaction": round(r.avg_satisfaction,4), "reward": round(r.reward(),4)} for k,r in self._records.get(task_type,{}).items()}
 
-        # Exploit: pick the highest-scoring strategy
-        best_key, best_score = None, -1.0
-        for key in candidates:
-            record = self._records.get(task_type, {}).get(key)
-            score = record.score() if record else 0.0
-            if score > best_score:
-                best_score = score
-                best_key = key
+    def register_strategy(self, task_type, strategy):
+        key = _skey(strategy)
+        if isinstance(strategy, ReasoningStrategy):
+            self._strategies.setdefault(task_type, {})[key] = strategy.to_dict()
+            self._reasoning[key] = strategy
+        else: self._strategies.setdefault(task_type, {})[key] = strategy
 
-        chosen = candidates[best_key]  # type: ignore[index]
-        log.debug("Selected strategy %s (score=%.3f) for %s", best_key, best_score, task_type)
-        return dict(chosen)
-
-    def record_outcome(
-        self,
-        task_type: str,
-        strategy: dict,
-        success: bool,
-        metrics: dict | None = None,
-    ) -> None:
-        """Record how well a strategy worked."""
-        metrics = metrics or {}
-        key = _strategy_key(strategy)
-
-        if task_type not in self._records:
-            self._records[task_type] = {}
-        if key not in self._records[task_type]:
-            self._records[task_type][key] = _StrategyRecord()
-
-        rec = self._records[task_type][key]
-        rec.attempts += 1
-        if success:
-            rec.successes += 1
-        rec.total_duration_ms += metrics.get("duration_ms", 0.0)
-        rec.total_quality += metrics.get("quality", 0.0)
-        rec.last_used = time.time()
-
-        # Ensure strategy is registered
-        self._strategies.setdefault(task_type, {})[key] = strategy
-
-    def get_strategy_stats(self, task_type: str) -> dict:
-        """Get performance stats per strategy for a task type."""
-        records = self._records.get(task_type, {})
-        return {
-            key: {
-                "attempts": r.attempts,
-                "success_rate": round(r.success_rate, 4),
-                "avg_duration_ms": round(r.avg_duration_ms, 2),
-                "avg_quality": round(r.avg_quality, 4),
-                "score": round(r.score(), 4),
-            }
-            for key, r in records.items()
-        }
-
-    def register_strategy(self, task_type: str, strategy: dict) -> None:
-        """Register a new strategy for a task type."""
-        key = _strategy_key(strategy)
-        self._strategies.setdefault(task_type, {})[key] = strategy
-
-    # ── internals ───────────────────────────────────────────────────────
-
-    def _load_defaults(self) -> None:
-        for task_type, strategies in _DEFAULT_STRATEGIES.items():
-            for s in strategies:
-                self.register_strategy(task_type, s)
+    @property
+    def algorithm(self): return self._algorithm
+    @algorithm.setter
+    def algorithm(self, v): self._algorithm = v
+    @property
+    def explore_rate(self): return self._explore_rate
+    @explore_rate.setter
+    def explore_rate(self, v): self._explore_rate = max(0.0, min(1.0, v))

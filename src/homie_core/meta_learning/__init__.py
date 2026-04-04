@@ -1,17 +1,19 @@
-"""Homie Meta-Learning — learning how to learn better.
+"""Homie Meta-Learning -- learning how to learn better."""
 
-Optimises strategy selection, cross-domain transfer, performance tracking,
-and automatic hyperparameter tuning across every Homie subsystem.
-"""
-
-from .strategy_selector import StrategySelector
+from .strategy_selector import StrategySelector, SelectionAlgorithm, ArmRecord
+from .strategies import (
+    ReasoningStrategy, DirectPromptStrategy, ChainOfThoughtStrategy,
+    ToolAugmentedStrategy, BUILTIN_STRATEGIES, get_strategy_by_name,
+)
 from .transfer_learner import TransferLearner
 from .performance_tracker import MetaPerformanceTracker
-from .auto_tuner import AutoTuner
+from .auto_tuner import AutoTuner, BetaPrior
+from .persistence import MetaLearningStore
 
 __all__ = [
-    "StrategySelector",
-    "TransferLearner",
-    "MetaPerformanceTracker",
-    "AutoTuner",
+    "StrategySelector", "SelectionAlgorithm", "ArmRecord",
+    "ReasoningStrategy", "DirectPromptStrategy", "ChainOfThoughtStrategy",
+    "ToolAugmentedStrategy", "BUILTIN_STRATEGIES", "get_strategy_by_name",
+    "TransferLearner", "MetaPerformanceTracker", "AutoTuner", "BetaPrior",
+    "MetaLearningStore",
 ]
