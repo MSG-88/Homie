@@ -92,3 +92,39 @@ def test_email_config_defaults():
     assert cfg.email.send_requires_confirmation is True
     assert cfg.email.insight_refresh_interval == 3600
     assert cfg.email.auto_download_categories == ["bill", "order", "work"]
+
+
+def test_config_has_mesh_section():
+    cfg = HomieConfig()
+    assert hasattr(cfg, "mesh")
+    assert cfg.mesh.enabled is True
+    assert cfg.mesh.auto_discover is True
+    assert cfg.mesh.auto_elect_hub is True
+    assert cfg.mesh.preferred_role == "auto"
+    assert cfg.mesh.heartbeat_interval == 15
+    assert cfg.mesh.sync_interval == 30
+
+
+def test_mesh_config_from_yaml(tmp_path):
+    data = {
+        "mesh": {
+            "enabled": False,
+            "preferred_role": "hub",
+            "heartbeat_interval": 10,
+            "wan": {"enabled": True, "transport": "websocket"},
+            "inference": {"max_concurrent": 4},
+            "security": {"key_rotation_days": 7},
+        },
+        "storage": {"path": str(tmp_path / ".homie")},
+    }
+    p = tmp_path / "config.yaml"
+    import yaml
+    p.write_text(yaml.dump(data))
+    cfg = load_config(p)
+    assert cfg.mesh.enabled is False
+    assert cfg.mesh.preferred_role == "hub"
+    assert cfg.mesh.heartbeat_interval == 10
+    assert cfg.mesh.wan.enabled is True
+    assert cfg.mesh.wan.transport == "websocket"
+    assert cfg.mesh.inference.max_concurrent == 4
+    assert cfg.mesh.security.key_rotation_days == 7
