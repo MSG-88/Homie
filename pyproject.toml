@@ -125,7 +125,13 @@ finetune = [
     "llama-cpp-python>=0.3",
     "psutil>=5.9",
 ]
-all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service,inference,network,keyring-linux,docs,ocr,finetune]"]
+mesh = [
+    "zeroconf>=0.80",
+    "websockets>=12.0",
+    "msgpack>=1.0",
+    "lz4>=4.3",
+]
+all = ["homie-ai[model,voice,context,storage,app,neural,email,social,messaging,screen-reader,service,inference,network,keyring-linux,docs,ocr,finetune,mesh]"]
 
 [project.scripts]
 homie = "homie_app.cli:main"
