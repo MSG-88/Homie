@@ -68,6 +68,15 @@ def _handle_mesh_leave(args: str, **ctx) -> str:
     return f"Left mesh {old_mesh}. Node is now standalone."
 
 
+def _handle_mesh_health(args: str, **ctx) -> str:
+    """Run mesh health checks."""
+    from homie_core.mesh.health import MeshHealthChecker
+    mesh_ctx = ctx.get("_mesh_ctx")
+    checker = MeshHealthChecker(mesh_context=mesh_ctx)
+    health = checker.run_all()
+    return health.summary()
+
+
 def _handle_mesh_api(args: str, **ctx) -> str:
     """Start the mesh REST API server."""
     try:
@@ -119,13 +128,14 @@ def register(router: SlashCommandRouter, ctx: dict) -> None:
     router.register(SlashCommand(
         name="mesh",
         description="Mesh topology and management",
-        args_spec="<status|pair|leave|nodes|api>",
+        args_spec="<status|pair|leave|nodes|health|api>",
         handler_fn=_handle_mesh_status,
         subcommands={
             "status": SlashCommand(name="status", description="Show mesh topology", handler_fn=_handle_mesh_status),
             "pair": SlashCommand(name="pair", description="Generate pairing code", handler_fn=_handle_mesh_pair),
             "leave": SlashCommand(name="leave", description="Leave current mesh", handler_fn=_handle_mesh_leave),
             "nodes": SlashCommand(name="nodes", description="List all nodes", handler_fn=_handle_mesh_status),
+            "health": SlashCommand(name="health", description="Run health checks", handler_fn=_handle_mesh_health),
             "api": SlashCommand(name="api", description="Start mesh REST API", args_spec="[--port N]", handler_fn=_handle_mesh_api),
         },
     ))
