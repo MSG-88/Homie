@@ -21,13 +21,15 @@ def tmp_config(tmp_path):
     return p
 
 
-def test_load_config_from_file(tmp_config):
+def test_load_config_from_file(tmp_config, monkeypatch):
+    monkeypatch.delenv("HF_KEY", raising=False)
     cfg = load_config(tmp_config)
     assert cfg.llm.backend == "gguf"
     assert cfg.voice.enabled is False
 
 
-def test_load_config_defaults():
+def test_load_config_defaults(monkeypatch):
+    monkeypatch.delenv("HF_KEY", raising=False)
     cfg = load_config()
     assert cfg.llm.backend == "gguf"
     assert cfg.storage.path is not None
