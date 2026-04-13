@@ -89,11 +89,53 @@ jobs:
           name: windows-packages
           path: dist/*.msi
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Build Release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+        env:
+          HOMIE_KEYSTORE_PASSWORD: ${{ secrets.HOMIE_KEYSTORE_PASSWORD }}
+          HOMIE_KEY_PASSWORD: ${{ secrets.HOMIE_KEY_PASSWORD }}
+      - name: Build Release AAB
+        working-directory: android
+        run: ./gradlew bundleRelease
+        env:
+          HOMIE_KEYSTORE_PASSWORD: ${{ secrets.HOMIE_KEYSTORE_PASSWORD }}
+          HOMIE_KEY_PASSWORD: ${{ secrets.HOMIE_KEY_PASSWORD }}
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: android/app/build/outputs/apk/release/*.apk
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+
   release:
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos, build-windows, android]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: packages/
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-aab
+          path: packages/
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true

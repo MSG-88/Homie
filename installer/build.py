@@ -38,6 +38,7 @@ def build_target(target: str, version: str) -> None:
         "rpm": INSTALLER / "linux" / "build_rpm.py",
         "appimage": INSTALLER / "linux" / "build_appimage.py",
         "dmg": INSTALLER / "macos" / "build_dmg.py",
+        "docker": INSTALLER / "docker" / "build_docker.py",
     }
     script = targets.get(target)
     if not script:
@@ -50,7 +51,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build Homie AI packages")
     parser.add_argument(
         "--target", required=True,
-        choices=["deb", "rpm", "appimage", "dmg", "msi", "all"],
+        choices=["deb", "rpm", "appimage", "dmg", "msi", "docker", "all"],
     )
     parser.add_argument("--skip-freeze", action="store_true")
     args = parser.parse_args()
