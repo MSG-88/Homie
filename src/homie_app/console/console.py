@@ -36,6 +36,7 @@ class Console:
         self._vault = None
         self._learner = None
         self._watchdog = None
+        self._mesh_ctx = None
         self._user_name = getattr(config, "user_name", None) or "User"
 
         if not skip_init:
@@ -200,6 +201,15 @@ class Console:
 
         self._brain.set_system_prompt(system_prompt)
 
+        # Mesh initialization
+        try:
+            from homie_core.mesh.bootstrap import bootstrap_mesh
+            self._mesh_ctx = bootstrap_mesh(self._config)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Mesh init failed: %s", e)
+            self._mesh_ctx = None
+
         # Register all slash commands
         self._register_commands(plugin_mgr=plugin_mgr)
 
@@ -224,6 +234,7 @@ class Console:
             "vault": self._vault,
             "learner": self._learner,
             "watchdog": self._watchdog,
+            "_mesh_ctx": self._mesh_ctx,
             "_router": self._router,
             "console": self,
             **services,

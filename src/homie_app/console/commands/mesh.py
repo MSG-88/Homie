@@ -68,16 +68,64 @@ def _handle_mesh_leave(args: str, **ctx) -> str:
     return f"Left mesh {old_mesh}. Node is now standalone."
 
 
+def _handle_mesh_api(args: str, **ctx) -> str:
+    """Start the mesh REST API server."""
+    try:
+        import uvicorn
+        from fastapi import FastAPI
+        from homie_core.mesh.api import create_mesh_router
+        from homie_core.mesh.bootstrap import bootstrap_mesh
+    except ImportError:
+        return "FastAPI/uvicorn not installed. Run: pip install homie-ai[app]"
+
+    config = ctx.get("config")
+    if not config:
+        return "No configuration loaded."
+
+    mesh_ctx = ctx.get("_mesh_ctx")
+    if mesh_ctx is None:
+        try:
+            mesh_ctx = bootstrap_mesh(config)
+        except Exception as e:
+            return f"Mesh bootstrap failed: {e}"
+
+    router = create_mesh_router(mesh_ctx)
+    if router is None:
+        return "FastAPI not available."
+
+    port = 8721
+    parts = args.strip().split()
+    if "--port" in parts:
+        idx = parts.index("--port")
+        if idx + 1 < len(parts):
+            port = int(parts[idx + 1])
+
+    app = FastAPI(title="Homie Mesh API", version="1.0.0")
+    app.include_router(router)
+
+    print(f"Starting mesh API on http://localhost:{port}")
+    print(f"  Node: {mesh_ctx.identity.node_name} ({mesh_ctx.identity.node_id[:8]}...)")
+    print(f"  Score: {mesh_ctx.capabilities.capability_score():.0f}")
+    print("  Press Ctrl+C to stop\n")
+
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    except KeyboardInterrupt:
+        pass
+    return "Mesh API stopped."
+
+
 def register(router: SlashCommandRouter, ctx: dict) -> None:
     router.register(SlashCommand(
         name="mesh",
         description="Mesh topology and management",
-        args_spec="<status|pair|leave|nodes>",
+        args_spec="<status|pair|leave|nodes|api>",
         handler_fn=_handle_mesh_status,
         subcommands={
             "status": SlashCommand(name="status", description="Show mesh topology", handler_fn=_handle_mesh_status),
             "pair": SlashCommand(name="pair", description="Generate pairing code", handler_fn=_handle_mesh_pair),
             "leave": SlashCommand(name="leave", description="Leave current mesh", handler_fn=_handle_mesh_leave),
             "nodes": SlashCommand(name="nodes", description="List all nodes", handler_fn=_handle_mesh_status),
+            "api": SlashCommand(name="api", description="Start mesh REST API", args_spec="[--port N]", handler_fn=_handle_mesh_api),
         },
     ))
