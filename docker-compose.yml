@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  homie-hub:
+    build:
+      context: .
+      target: full
+    container_name: homie-hub
+    restart: unless-stopped
+    ports:
+      - "8721:8721"  # Mesh API
+      - "8765:8765"  # WebSocket sync
+    volumes:
+      - homie-hub-data:/data
+      - ./homie.config.yaml:/app/homie.config.yaml:ro
+    environment:
+      - HOMIE_USER_NAME=admin
+      - HOMIE_STORAGE_PATH=/data
+    networks:
+      - homie-mesh
+
+  homie-spoke:
+    build:
+      context: .
+      target: spoke
+    container_name: homie-spoke
+    restart: unless-stopped
+    ports:
+      - "8722:8721"
+    volumes:
+      - homie-spoke-data:/data
+    environment:
+      - HOMIE_USER_NAME=spoke
+      - HOMIE_STORAGE_PATH=/data
+      - HOMIE_LLM_BACKEND=cloud
+    networks:
+      - homie-mesh
+    depends_on:
+      - homie-hub
+
+volumes:
+  homie-hub-data:
+  homie-spoke-data:
+
+networks:
+  homie-mesh:
+    driver: bridge
