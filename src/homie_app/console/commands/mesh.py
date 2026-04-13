@@ -77,6 +77,61 @@ def _handle_mesh_health(args: str, **ctx) -> str:
     return health.summary()
 
 
+def _handle_mesh_train(args: str, **ctx) -> str:
+    """Check training readiness or trigger a training cycle."""
+    mesh_ctx = ctx.get("_mesh_ctx")
+    if mesh_ctx is None or mesh_ctx.auto_trainer is None:
+        return "Mesh not initialized. Start Homie first."
+
+    trainer = mesh_ctx.auto_trainer
+
+    if args.strip() == "status":
+        summary = trainer.check_ready()
+        lines = [
+            "**Training Status**",
+            f"  Total signals: {summary['total_signals']}",
+            f"  SFT pairs: {summary['sft_pairs']}",
+            f"  DPO pairs: {summary['dpo_pairs']}",
+            f"  Ready to train: {'yes' if summary['ready'] else 'no'}",
+        ]
+        return "\n".join(lines)
+
+    if args.strip() == "run":
+        summary = trainer.check_ready()
+        if not summary["ready"]:
+            return (
+                f"Not enough training data yet ({summary['total_signals']} signals). "
+                f"Need more feedback interactions before training."
+            )
+        skip = "--skip-gpu" in args
+        result = trainer.run_cycle(skip_training=skip)
+        lines = [
+            f"**Training Cycle {result.cycle} Complete**",
+            f"  SFT pairs: {result.sft_pairs}",
+            f"  DPO pairs: {result.dpo_pairs}",
+            f"  Training: {'completed' if result.training_completed else 'skipped'}",
+            f"  Score: {result.score:.2f}" if result.score else "",
+        ]
+        if result.error:
+            lines.append(f"  Error: {result.error}")
+        return "\n".join(l for l in lines if l)
+
+    if args.strip() == "export":
+        data = trainer.export_training_data()
+        return (
+            f"Exported training data:\n"
+            f"  SFT: {data['sft_count']} pairs -> {data['sft_path']}\n"
+            f"  DPO: {data['dpo_count']} pairs -> {data['dpo_path']}"
+        )
+
+    return (
+        "Usage: /mesh train <status|run|export>\n"
+        "  status — Check training readiness\n"
+        "  run    — Run a training cycle (requires GPU)\n"
+        "  export — Export training data as JSONL"
+    )
+
+
 def _handle_mesh_api(args: str, **ctx) -> str:
     """Start the mesh REST API server."""
     try:
@@ -128,7 +183,7 @@ def register(router: SlashCommandRouter, ctx: dict) -> None:
     router.register(SlashCommand(
         name="mesh",
         description="Mesh topology and management",
-        args_spec="<status|pair|leave|nodes|health|api>",
+        args_spec="<status|pair|leave|nodes|health|train|api>",
         handler_fn=_handle_mesh_status,
         subcommands={
             "status": SlashCommand(name="status", description="Show mesh topology", handler_fn=_handle_mesh_status),
@@ -136,6 +191,7 @@ def register(router: SlashCommandRouter, ctx: dict) -> None:
             "leave": SlashCommand(name="leave", description="Leave current mesh", handler_fn=_handle_mesh_leave),
             "nodes": SlashCommand(name="nodes", description="List all nodes", handler_fn=_handle_mesh_status),
             "health": SlashCommand(name="health", description="Run health checks", handler_fn=_handle_mesh_health),
+            "train": SlashCommand(name="train", description="Training pipeline", args_spec="<status|run|export>", handler_fn=_handle_mesh_train),
             "api": SlashCommand(name="api", description="Start mesh REST API", args_spec="[--port N]", handler_fn=_handle_mesh_api),
         },
     ))

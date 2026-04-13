@@ -20,6 +20,8 @@ from homie_core.mesh.training_trigger import TrainingTrigger
 from homie_core.mesh.task_executor import MeshTaskExecutor
 from homie_core.mesh.task_dispatcher import TaskDispatcher
 from homie_core.mesh.auth import AuthStore, Role
+from homie_core.mesh.auto_trainer import AutoTrainer
+from homie_core.mesh.model_distributor import ModelDistributor
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,8 @@ class MeshContext:
         task_executor: MeshTaskExecutor,
         task_dispatcher: TaskDispatcher,
         auth_store: AuthStore,
+        auto_trainer: Optional[AutoTrainer] = None,
+        model_distributor: Optional[ModelDistributor] = None,
         enabled: bool = True,
     ):
         self.identity = identity
@@ -57,6 +61,8 @@ class MeshContext:
         self.task_executor = task_executor
         self.task_dispatcher = task_dispatcher
         self.auth_store = auth_store
+        self.auto_trainer = auto_trainer
+        self.model_distributor = model_distributor
         self.enabled = enabled
 
     @property
@@ -131,7 +137,20 @@ def bootstrap_mesh(config: HomieConfig, data_dir: Optional[Path] = None) -> Mesh
         executor=task_executor,
     )
 
-    # 8. Auth
+    # 8. Model distributor + auto trainer
+    model_distributor = ModelDistributor(mesh_manager=mesh_manager)
+    modelfile_path = Path.cwd() / "Modelfile"
+    auto_trainer = AutoTrainer(
+        feedback_store=feedback_store,
+        training_trigger=training_trigger,
+        model_distributor=model_distributor,
+        mesh_manager=mesh_manager,
+        base_dir=mesh_dir / "training",
+        registry_name=config.model_evolution.ollama_registry_name,
+        modelfile_path=modelfile_path if modelfile_path.exists() else None,
+    )
+
+    # 9. Auth
     auth_store = AuthStore(mesh_dir / "auth.db")
     auth_store.initialize()
 
@@ -169,5 +188,7 @@ def bootstrap_mesh(config: HomieConfig, data_dir: Optional[Path] = None) -> Mesh
         task_executor=task_executor,
         task_dispatcher=task_dispatcher,
         auth_store=auth_store,
+        auto_trainer=auto_trainer,
+        model_distributor=model_distributor,
         enabled=config.mesh.enabled,
     )
