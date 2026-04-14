@@ -254,7 +254,7 @@ def _train_qlora(
         logging_steps=10,
         save_strategy="epoch",
         bf16=True,
-        max_seq_length=2048,
+        max_length=2048,
         dataset_text_field="text",
         report_to="none",
     )
