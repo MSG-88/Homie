@@ -1,10 +1,10 @@
-# Homie AI Configuration
+# Homie AI Configuration — Pure HuggingFace (no Ollama)
 # This machine: MS (RTX 5080, mesh Hub)
 # Server: msg-1 (100.116.35.40 via Tailscale)
 
 llm:
-  backend: ollama
-  model_path: PyMasters/Homie:latest
+  backend: hf_local
+  model_path: ~/.homie/hf_model/merged
   context_length: 8192
   temperature: 0.7
   max_tokens: 2048
@@ -57,5 +57,10 @@ proactive:
 
 model_evolution:
   enabled: true
-  ollama_registry_name: PyMasters/Homie
-  ollama_base_model: qwen3.5
+  ollama_registry_name: Muthu88/Homie
+  ollama_base_model: LiquidAI/LFM2.5-1.2B-Instruct
+
+finetune:
+  enabled: true
+  base_model: LiquidAI/LFM2.5-1.2B-Instruct
+  registry_name: Muthu88/Homie

@@ -32,7 +32,7 @@ def test_load_config_defaults(monkeypatch):
     monkeypatch.delenv("HF_KEY", raising=False)
     cfg = load_config()
     # Backend depends on homie.config.yaml presence — accept both gguf and ollama
-    assert cfg.llm.backend in ("gguf", "ollama")
+    assert cfg.llm.backend in ("gguf", "ollama", "hf_local")
     assert cfg.storage.path is not None
 
 

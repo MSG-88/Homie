@@ -12,8 +12,19 @@ from pathlib import Path
 
 def _validate_model_entry(entry, cfg) -> str | None:
     """Check if a model entry is actually usable. Returns error message or None."""
-    if entry.format == "ollama":
-        # Check if Ollama is running and model is available
+    if entry.format == "hf_local":
+        # Check if the model path exists (local) or is a valid HF model ID
+        model_path = os.path.expanduser(entry.path)
+        if Path(model_path).exists():
+            # Check for required files
+            has_model = any(Path(model_path).glob("*.safetensors")) or any(Path(model_path).glob("*.bin"))
+            if not has_model:
+                return f"No model weights found in {model_path}"
+            return None
+        else:
+            # Might be a HF Hub model ID — will download on first use
+            return None
+    elif entry.format == "ollama":
         try:
             import urllib.request, json
             req = urllib.request.Request("http://localhost:11434/api/tags")

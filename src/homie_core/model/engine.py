@@ -56,6 +56,14 @@ class ModelEngine:
                 base_url=kwargs.get("base_url", "http://localhost:11434"),
             )
             self._backend = backend
+        elif entry.format == "hf_local":
+            from homie_core.model.hf_local_backend import HFLocalBackend
+            backend = HFLocalBackend()
+            backend.load(
+                model_id=entry.path,
+                quantize_4bit=kwargs.get("quantize_4bit", True),
+            )
+            self._backend = backend
         else:
             raise ValueError(f"Unsupported format: {entry.format}")
         self._loaded = True
