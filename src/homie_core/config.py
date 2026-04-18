@@ -514,12 +514,18 @@ def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
         "HF_KEY": ("llm", "api_key"),
     }
 
-    # Auto-detect HF backend when HF_KEY is present and no explicit config
+    # Auto-detect HF backend ONLY when backend is still default "gguf" and no explicit config
+    # Skip if backend was explicitly set (e.g., "ollama", "cloud", "hf")
     hf_key = os.environ.get("HF_KEY", "")
     if hf_key and not cfg.llm.api_key and cfg.llm.backend == "gguf":
         cfg.llm.api_key = hf_key
         cfg.llm.backend = "hf"
         cfg.llm.model_path = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
+
+    # Load Qubrid API key from env (support both naming conventions)
+    qubrid_key = os.environ.get("HOMIE_QUBRID_API_KEY") or os.environ.get("QUBRID_API_KEY", "")
+    if qubrid_key:
+        os.environ["HOMIE_QUBRID_API_KEY"] = qubrid_key
     for env_var, path in env_map.items():
         val = os.environ.get(env_var)
         if val is None:
@@ -535,7 +541,27 @@ def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
     return cfg
 
 
+def _load_dotenv() -> None:
+    """Load ~/.homie/.env into os.environ if it exists."""
+    env_path = Path.home() / ".homie" / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
 def load_config(path: Optional[Path | str] = None) -> HomieConfig:
+    # Load .env before anything else
+    _load_dotenv()
+
     data = {}
     if path is not None:
         path = Path(path)

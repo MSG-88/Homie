@@ -15,10 +15,17 @@ HOMIE_ASCII = r"""
 
 
 def show_boot_screen(rc, version: str = "0.3.0") -> None:
-    rc.print()
-    rc.print(Align.center(Text(HOMIE_ASCII, style="homie.brand")))
-    rc.print(Align.center(Text(f"v{version}  ·  Local AI Assistant  ·  100% Private", style="homie.dim")))
-    rc.print()
+    try:
+        rc.print()
+        rc.print(Align.center(Text(HOMIE_ASCII, style="homie.brand")))
+        rc.print(Align.center(Text(f"v{version}  ·  Local AI Assistant  ·  100% Private", style="homie.dim")))
+        rc.print()
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Fallback for terminals that can't handle box-drawing characters
+        rc.print()
+        rc.print(Align.center(Text("H O M I E", style="bold")))
+        rc.print(Align.center(Text(f"v{version} - Local AI Assistant - 100% Private", style="dim")))
+        rc.print()
 
 
 def show_system_check(rc, checks: list[tuple[str, bool, str]]) -> None:

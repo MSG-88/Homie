@@ -12,7 +12,22 @@ from pathlib import Path
 
 def _validate_model_entry(entry, cfg) -> str | None:
     """Check if a model entry is actually usable. Returns error message or None."""
-    if entry.format == "hf":
+    if entry.format == "ollama":
+        # Check if Ollama is running and model is available
+        try:
+            import urllib.request, json
+            req = urllib.request.Request("http://localhost:11434/api/tags")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                model_names = [m["name"] for m in data.get("models", [])]
+                if entry.path not in model_names:
+                    base = entry.path.split(":")[0]
+                    if not any(m.startswith(base) for m in model_names):
+                        return f"Ollama model '{entry.path}' not found. Run: ollama pull {entry.path}"
+            return None
+        except Exception:
+            return "Ollama is not running. Start it with: ollama serve"
+    elif entry.format == "hf":
         api_key = cfg.llm.api_key or os.environ.get("HF_KEY", "")
         if not api_key:
             return (
@@ -66,11 +81,12 @@ def _pick_usable_model(registry, cfg):
 
     # Try config fallback
     if cfg.llm.model_path:
+        name = cfg.llm.model_path.split("/")[-1].split(":")[0] if "/" in cfg.llm.model_path else cfg.llm.model_path
         fallback = ModelEntry(
-            name=cfg.llm.model_path if cfg.llm.backend == "cloud" else "Qwen3.5-35B-A3B",
+            name=name,
             path=cfg.llm.model_path,
             format=cfg.llm.backend,
-            params="cloud" if cfg.llm.backend == "cloud" else "35B-A3B",
+            params=cfg.llm.backend,
         )
         error = _validate_model_entry(fallback, cfg)
         if not error:

@@ -48,6 +48,14 @@ class ModelEngine:
                 base_url=kwargs.get("base_url", "https://api.openai.com/v1"),
             )
             self._backend = backend
+        elif entry.format == "ollama":
+            from homie_core.model.ollama_backend import OllamaBackend
+            backend = OllamaBackend()
+            backend.load(
+                model=entry.path,
+                base_url=kwargs.get("base_url", "http://localhost:11434"),
+            )
+            self._backend = backend
         else:
             raise ValueError(f"Unsupported format: {entry.format}")
         self._loaded = True
