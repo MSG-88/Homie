@@ -1,0 +1,11 @@
+{
+  "name": "homie-desktop",
+  "version": "0.1.0",
+  "description": "Homie Desktop Companion — Tauri v2 GUI for local AI assistant",
+  "private": true,
+  "scripts": {
+    "tauri": "cargo tauri",
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build"
+  }
+}

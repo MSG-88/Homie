@@ -1,247 +1,66 @@
-connections:
-  blog:
-    connected: false
-    feed_url: ''
-  facebook:
-    connected: false
-  gmail:
-    connected: false
-  instagram:
-    connected: false
-  linkedin:
-    connected: false
-  phone_link:
-    connected: false
-    read_only: true
-  reddit:
-    connected: false
-  slack:
-    connected: false
-  telegram:
-    connected: false
-  twitter:
-    connected: false
-  whatsapp:
-    connected: false
-    experimental: true
-context:
-  arg_truncation_threshold: 2000
-  large_result_threshold: 80000
-  long_line_threshold: 5000
-  manual_compact_pct: 0.5
-  summarize_keep_pct: 0.1
-  summarize_trigger_pct: 0.85
-embedding:
-  batch_size: 32
-  dimensions: 768
-  model_name: BAAI/bge-base-en-v1.5
+# Homie AI Configuration — Pure HuggingFace (no Ollama)
+# This machine: MS (RTX 5080, mesh Hub)
+# Server: msg-1 (100.116.35.40 via Tailscale)
+
+llm:
+  backend: hf_local
+  model_path: ~/.homie/hf_model_v2/merged
+  context_length: 8192
+  temperature: 0.7
+  max_tokens: 2048
+  gpu_layers: -1
+
+voice:
+  enabled: false
+  hotkey: ctrl+8
+  wake_word: hey homie
+
+storage:
+  path: ~/.homie
+  db_name: homie.db
+
 inference:
-  lan:
-    max_latency_ms: 500
-    prefer_desktop: true
   priority:
-  - local
-  - lan
-  - qubrid
+    - local
+    - lan
+    - qubrid
   qubrid:
-    base_url: https://platform.qubrid.com/v1
     enabled: true
     model: Qwen/Qwen3.5-Flash
+    base_url: https://platform.qubrid.com/v1
     timeout: 30
-llm:
-  api_base_url: ''
-  api_key: ''
-  backend: gguf
-  context_length: 65536
-  gpu_layers: -1
-  max_tokens: 2048
-  model_path: C:\Users\muthu\.homie\models\glm-4.7-flash.gguf
-  repo_id: THUDM/glm-4.7-flash-GGUF
-  temperature: 0.7
-location: null
-network:
+
+mesh:
+  enabled: true
   auto_discover: true
-  enabled: true
-  sync_port: 8765
-  sync_scope: all
-notifications:
-  categories:
-    context_suggestions: true
-    email_digest: true
-    email_priority: true
-    proactive: true
-    social_mentions: true
-    system_alerts: true
-    task_reminders: true
-  dnd_schedule_enabled: false
-  dnd_schedule_end: 07:00
-  dnd_schedule_start: '22:00'
-  enabled: true
-plugins:
-  enabled: []
-  plugin_dirs: []
-privacy:
-  data_retention_days: 30
-  max_storage_mb: 512
-  observers:
-    browsing: false
-    emotional: false
-    media: false
-    routine: true
-    social: false
-    work: true
-  screen_reader_consent: false
-screen_reader:
-  analysis_engine: cloud
-  blocklist:
-  - '*password*'
-  - '*banking*'
-  - '*incognito*'
-  - '*private*'
-  - '*1Password*'
-  - '*KeePass*'
-  - '*LastPass*'
-  dnd: false
-  enabled: false
-  event_driven: true
-  level: 1
-  pii_filter: true
-  poll_interval_t1: 5
-  poll_interval_t2: 30
-  poll_interval_t3: 60
-service:
-  max_retries: 3
-  mode: on_demand
-  restart_on_failure: true
-  start_on_login: false
-storage:
-  backup_dir: backups
-  chroma_dir: chroma
-  db_name: homie.db
-  log_dir: logs
-  models_dir: models
-  path: C:\Users\muthu\.homie
+  auto_elect_hub: true
+  preferred_role: hub
+
 user:
+  name: Muthu
   language: en
-  name: Master
-  timezone: auto
-  work_days:
-  - mon
-  - tue
-  - wed
-  - thu
-  - fri
-  work_hours_end: '18:00'
-  work_hours_start: 09:00
-self_healing:
+  timezone: Asia/Kolkata
+
+privacy:
+  data_retention_days: 90
+  screen_reader_consent: false
+
+notifications:
   enabled: true
-  probe_interval: 30
-  critical_probe_interval: 10
-  improvement:
-    enabled: true
-    max_mutations_per_day: 10
-    monitoring_window: 300
-    rollback_error_threshold: 0.20
-    rollback_latency_threshold: 0.50
-  recovery:
-    max_tier: 4
-    preemptive: true
-    pattern_threshold: 3
-  health_log:
-    retention_days: 30
-    digest_enabled: true
-  guardian_enabled: true
-  core_lock:
-    - self_healing/improvement/rollback.py
-    - self_healing/guardian.py
-    - security/
-adaptive_learning:
+
+awareness:
   enabled: true
-  preference:
-    learning_rate_explicit: 0.3
-    learning_rate_implicit: 0.05
-    min_signals_for_confidence: 10
-  performance:
-    cache_enabled: true
-    cache_max_entries: 500
-    cache_ttl_default: 86400
-    cache_similarity_threshold: 0.92
-    context_optimization: true
-    resource_scheduling: true
-  knowledge:
-    conversation_mining: true
-    project_tracking: true
-    behavioral_profiling: true
-    scan_interval: 300
-  self_optimizer:
-    enabled: true
-    prompt:
-      deduplication: true
-      relevance_threshold: 0.3
-      history_compression: true
-      max_history_turns_default: 10
-    model:
-      auto_temperature: true
-      auto_context_length: true
-      auto_gpu_layers: true
-      response_length_learning: true
-    pipeline:
-      gating_enabled: true
-      self_correcting: true
-      promotion_threshold: 3
-  feedback_loops: true
-knowledge_graph:
+  poll_interval_seconds: 5.0
+
+proactive:
   enabled: true
-  intake:
-    surface_pass: true
-    deep_pass: true
-    deep_pass_top_percent: 20
-    max_deep_files_per_batch: 50
-  reasoning:
-    entity_resolution: true
-    relationship_inference: true
-    max_inference_hops: 2
-    inference_batch_interval: 300
-  temporal:
-    confidence_decay_rate: 0.99
-    contradiction_auto_resolve: true
+
 model_evolution:
   enabled: true
-  ollama_registry_name: MSG-88/Homie
-  ollama_base_model: lfm2
-  milestones_min_facts: 50
-  milestones_min_prefs: 10
-  milestones_min_customs: 3
-  validation_benchmark_min_score: 0.7
-  validation_shadow_queries: 50
-  validation_shadow_max_hours: 24
-  validation_promotion_threshold: 0.6
-  sft_collection: true
-  dpo_collection: true
-user_name: Master
-voice:
-  audio_chunk_size: 512
-  audio_sample_rate: 16000
-  barge_in: true
-  conversation_timeout: 120
-  device: auto
+  ollama_registry_name: Muthu88/Homie
+  ollama_base_model: LiquidAI/LFM2.5-1.2B-Instruct
+
+finetune:
   enabled: true
-  exit_phrases:
-  - goodbye
-  - stop
-  - that's all
-  hotkey: ctrl+8
-  max_exit_prompts: 3
-  mode: push_to_talk
-  stt_engine: faster-whisper
-  stt_language: auto
-  stt_model_fast: tiny.en
-  stt_model_quality: medium
-  tts_mode: auto
-  tts_voice_fast: piper
-  tts_voice_multilingual: melo
-  tts_voice_quality: kokoro
-  vad_engine: silero
-  vad_silence_ms: 300
-  vad_threshold: 0.5
-  wake_word: hey homie
+  base_model: LiquidAI/LFM2.5-1.2B-Instruct
+  registry_name: Muthu88/Homie

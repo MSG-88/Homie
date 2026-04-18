@@ -1,0 +1,10 @@
+FROM qwen3.5:latest
+
+PARAMETER temperature 0.7
+PARAMETER num_ctx 8192
+PARAMETER repeat_penalty 1.2
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER stop <|endoftext|>
+PARAMETER stop <|im_end|>
+PARAMETER stop <|im_start|>

@@ -31,6 +31,8 @@ def register_all_commands(router: SlashCommandRouter, ctx: dict) -> None:
     from homie_app.console.commands.news import register as reg_news
     from homie_app.console.commands.briefing import register as reg_briefing
     from homie_app.console.commands.desktop import register as reg_desktop
+    from homie_app.console.commands.node import register as reg_node
+    from homie_app.console.commands.mesh import register as reg_mesh
 
     reg_help(router, ctx)
     reg_memory(router, ctx)
@@ -56,6 +58,22 @@ def register_all_commands(router: SlashCommandRouter, ctx: dict) -> None:
     reg_news(router, ctx)
     reg_briefing(router, ctx)
     reg_desktop(router, ctx)
+    reg_node(router, ctx)
+    reg_mesh(router, ctx)
+
+    # Dashboard command
+    def _handle_dashboard(args, **ctx):
+        from homie_app.console.dashboard import show_dashboard
+        from homie_app.console.rich_console import rc
+        show_dashboard(rc, engine=ctx.get("engine"), config=ctx.get("config"),
+                       mesh_ctx=ctx.get("_mesh_ctx"))
+        return ""
+
+    router.register(SlashCommand(
+        name="dashboard",
+        description="Show system dashboard with live stats",
+        handler_fn=_handle_dashboard,
+    ))
 
     # Quit is handled by Console.run() directly before router dispatch
     router.register(SlashCommand(

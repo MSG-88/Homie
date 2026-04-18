@@ -22,10 +22,14 @@ except ImportError:
 class HomieDiscovery:
     """Advertise and discover Homie instances on the LAN via mDNS."""
 
-    def __init__(self, device_id: str, device_name: str, port: int = 8765):
+    def __init__(self, device_id: str, device_name: str, port: int = 8765,
+                 role: str = "standalone", mesh_id: str = "", capability_score: float = 0.0):
         self.device_id = device_id
         self.device_name = device_name
         self.port = port
+        self.role = role
+        self.mesh_id = mesh_id
+        self.capability_score = capability_score
         self._zeroconf: Optional[Zeroconf] = None
         self._browser = None
         self._service_info = None
@@ -66,6 +70,9 @@ class HomieDiscovery:
                     "device_id": self.device_id,
                     "device_name": self.device_name,
                     "version": "1.0.0",
+                    "role": self.role,
+                    "mesh_id": self.mesh_id,
+                    "capability_score": str(self.capability_score),
                 },
                 server=f"{hostname}.local.",
             )
@@ -111,6 +118,9 @@ class HomieDiscovery:
                         "name": info.properties.get(b"device_name", b"").decode(),
                         "host": socket.inet_ntoa(info.addresses[0]) if info.addresses else "",
                         "port": info.port,
+                        "role": info.properties.get(b"role", b"standalone").decode(),
+                        "mesh_id": info.properties.get(b"mesh_id", b"").decode(),
+                        "capability_score": float(info.properties.get(b"capability_score", b"0").decode()),
                     }
         elif _ServiceStateChange and state_change == _ServiceStateChange.Removed:
             for did in list(self._discovered.keys()):

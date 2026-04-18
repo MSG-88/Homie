@@ -42,6 +42,7 @@ class VoiceConfig(BaseModel):
     enabled: bool = False
     hotkey: str = "ctrl+8"
     wake_word: str = "hey homie"
+    wake_word_model: Optional[str] = None  # Path to custom ONNX wake word model
     mode: str = "hybrid"
 
     stt_engine: str = "faster-whisper"
@@ -405,6 +406,71 @@ class EmailConfig(BaseModel):
     send_requires_confirmation: bool = True
 
 
+class AwarenessConfig(BaseModel):
+    enabled: bool = True
+    poll_interval_seconds: float = 5.0
+    idle_threshold_minutes: float = 5.0
+    session_gap_minutes: float = 15.0
+    store_path: str = str(Path.home() / ".homie" / "awareness.db")
+    sensitive_apps: list[str] = Field(default_factory=lambda: [
+        "password", "banking", "keypass", "1password", "lastpass", "bitwarden",
+    ])
+    report_retention_days: int = 90
+
+
+class ProactiveConfig(BaseModel):
+    enabled: bool = True
+    check_interval_minutes: float = 5.0
+    deep_work_hold_minutes: float = 30.0
+    meeting_prep_minutes_before: int = 15
+    incomplete_task_remind_hours: float = 24.0
+
+
+class FileOrganizerConfig(BaseModel):
+    enabled: bool = True
+    mode: str = "shadow"  # shadow | suggest | auto
+    watch_directories: list[str] = Field(default_factory=lambda: [
+        str(Path.home() / "Downloads"),
+        str(Path.home() / "Documents"),
+        str(Path.home() / "Desktop"),
+    ])
+    trust_threshold: float = 0.8
+    undo_retention_days: int = 30
+    excluded_dirs: list[str] = Field(default_factory=lambda: [
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+    ])
+
+
+class MeshWANConfig(BaseModel):
+    enabled: bool = False
+    transport: str = "tailscale"
+    hub_address: str = ""
+    fallback_address: str = ""
+
+class MeshInferenceConfig(BaseModel):
+    allow_remote: bool = True
+    max_concurrent: int = 2
+    queue_spillover: str = "qubrid"
+
+class MeshSecurityConfig(BaseModel):
+    key_rotation_days: int = 30
+    require_tailscale: bool = False
+    ip_allowlist: list[str] = Field(default_factory=list)
+
+class MeshConfig(BaseModel):
+    enabled: bool = True
+    auto_discover: bool = True
+    auto_elect_hub: bool = True
+    preferred_role: str = "auto"
+    pairing_timeout: int = 300
+    heartbeat_interval: int = 15
+    sync_interval: int = 30
+    max_offline_events: int = 100000
+    wan: MeshWANConfig = Field(default_factory=MeshWANConfig)
+    inference: MeshInferenceConfig = Field(default_factory=MeshInferenceConfig)
+    security: MeshSecurityConfig = Field(default_factory=MeshSecurityConfig)
+
+
 class HomieConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
@@ -429,6 +495,10 @@ class HomieConfig(BaseModel):
     finetune: FinetuneConfig = Field(default_factory=FinetuneConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
     gcp: GCPConfig = Field(default_factory=GCPConfig)
+    awareness: AwarenessConfig = Field(default_factory=AwarenessConfig)
+    proactive: ProactiveConfig = Field(default_factory=ProactiveConfig)
+    file_organizer: FileOrganizerConfig = Field(default_factory=FileOrganizerConfig)
+    mesh: MeshConfig = Field(default_factory=MeshConfig)
 
 
 def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
@@ -444,12 +514,18 @@ def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
         "HF_KEY": ("llm", "api_key"),
     }
 
-    # Auto-detect HF backend when HF_KEY is present and no explicit config
+    # Auto-detect HF backend ONLY when backend is still default "gguf" and no explicit config
+    # Skip if backend was explicitly set (e.g., "ollama", "cloud", "hf")
     hf_key = os.environ.get("HF_KEY", "")
     if hf_key and not cfg.llm.api_key and cfg.llm.backend == "gguf":
         cfg.llm.api_key = hf_key
         cfg.llm.backend = "hf"
         cfg.llm.model_path = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
+
+    # Load Qubrid API key from env (support both naming conventions)
+    qubrid_key = os.environ.get("HOMIE_QUBRID_API_KEY") or os.environ.get("QUBRID_API_KEY", "")
+    if qubrid_key:
+        os.environ["HOMIE_QUBRID_API_KEY"] = qubrid_key
     for env_var, path in env_map.items():
         val = os.environ.get(env_var)
         if val is None:
@@ -465,7 +541,27 @@ def _apply_env_overrides(cfg: HomieConfig) -> HomieConfig:
     return cfg
 
 
+def _load_dotenv() -> None:
+    """Load ~/.homie/.env into os.environ if it exists."""
+    env_path = Path.home() / ".homie" / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
 def load_config(path: Optional[Path | str] = None) -> HomieConfig:
+    # Load .env before anything else
+    _load_dotenv()
+
     data = {}
     if path is not None:
         path = Path(path)
